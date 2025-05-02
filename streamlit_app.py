@@ -11,6 +11,14 @@ OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
 # --- Initialize OpenAI client ---
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+# --- Session State Initialization ---
+if 'answers' not in st.session_state:
+    st.session_state.answers = {}
+if 'tmdb_results' not in st.session_state:
+    st.session_state.tmdb_results = []
+if 'selected_movies' not in st.session_state:
+    st.session_state.selected_movies = []
+
 # --- OpenAI movie selection based on preferences ---
 def select_movies_with_openai(movies, user_preferences):
     prompt = f"""Given the list of movies and the user's preferences, choose 5 movies that best fit the user's mood, company, with kids, tone, popularity, real or fiction, discussion, and soundtrack preferences.
@@ -50,10 +58,8 @@ Movies List:"""
         st.error(f"❌ OpenAI API error: {e}")
         return []
 
-# --- Streamlit UI: Ask questions and collect answers ---
+# --- Streamlit UI ---
 st.title("🎬 AI Movie Recommender")
-
-answers = {}
 
 with st.form("preferences_form"):
     st.subheader("1. Basic Questions")
@@ -77,10 +83,10 @@ if submitted:
     if not genre:
         st.warning("⚠️ You must choose at least one genre to continue.")
     else:
-        answers['duration'] = duration
-        answers['language'] = language
-        answers['genre'] = genre
-        answers['release_year'] = release_year
+        st.session_state.answers['duration'] = duration
+        st.session_state.answers['language'] = language
+        st.session_state.answers['genre'] = genre
+        st.session_state.answers['release_year'] = release_year
         st.success("✅ Preferences collected. Continue to the next section.")
 
 with st.form("mood_preferences"):
@@ -114,22 +120,17 @@ with st.form("mood_preferences"):
     submitted_2 = st.form_submit_button("Save Preferences")
 
 if submitted_2:
-    answers["mood"] = mood
-    answers["company"] = company
-    answers["with_kids"] = with_kids
-    answers["tone"] = tone
-    answers["popularity"] = popularity
-    answers["real_or_fiction"] = real_or_fiction
-    answers["discussion"] = discussion
-    answers["soundtrack"] = soundtrack
+    st.session_state.answers["mood"] = mood
+    st.session_state.answers["company"] = company
+    st.session_state.answers["with_kids"] = with_kids
+    st.session_state.answers["tone"] = tone
+    st.session_state.answers["popularity"] = popularity
+    st.session_state.answers["real_or_fiction"] = real_or_fiction
+    st.session_state.answers["discussion"] = discussion
+    st.session_state.answers["soundtrack"] = soundtrack
     st.success("✅ Mood and preferences saved.")
 
-if answers:
-    st.markdown("### 🎬 Your Movie Preferences")
-    for key, value in answers.items():
-        st.write(f"**{key.capitalize()}**: {value}")
-
-# --- TMDb Search Function ---
+# --- TMDb Search ---
 def search_tmdb_movies(answers):
     genre_map = {
         "Action": 28, "Comedy": 35, "Drama": 18, "Sci-Fi": 878, "Romance": 10749,
@@ -159,7 +160,7 @@ def search_tmdb_movies(answers):
         with_runtime = (0, 400)
 
     results = []
-    for page in range(1, 6):
+    for page in range(1, 3):
         url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&language=en-US&sort_by=popularity.desc&page={page}"
         if genre_ids:
             url += f"&with_genres={','.join(genre_ids)}"
@@ -171,113 +172,33 @@ def search_tmdb_movies(answers):
             url += f"&primary_release_date.lte={max_year}-12-31"
         url += f"&with_runtime.gte={with_runtime[0]}&with_runtime.lte={with_runtime[1]}"
 
-        st.code(f"🔎 TMDb Search URL (page {page}): {url}", language="markdown")
-
         response = requests.get(url)
         data = response.json()
-
-        filtered = [
-            movie for movie in data.get("results", [])
-            if all(int(gid) in movie.get("genre_ids", []) for gid in map(int, genre_ids))
-        ]
+        filtered = [movie for movie in data.get("results", []) if all(int(gid) in movie.get("genre_ids", []) for gid in map(int, genre_ids))]
         results.extend(filtered)
 
     return results
 
-# --- Execute TMDb search and display movies ---
-if answers and st.button("🎥 Find Movies"):
-    with st.spinner("Fetching movies from TMDb..."):
-        tmdb_results = search_tmdb_movies(answers)
+# --- Run TMDb Search ---
+if st.session_state.answers and st.button("🎥 Find Movies"):
+    with st.spinner("Fetching movies..."):
+        st.session_state.tmdb_results = search_tmdb_movies(st.session_state.answers)
 
-    if tmdb_results:
-        st.success(f"✅ Found {len(tmdb_results)} movie(s) matching your criteria.")
-        for movie in tmdb_results[:5]:
+    if st.session_state.tmdb_results:
+        st.success(f"✅ Found {len(st.session_state.tmdb_results)} movie(s).")
+        for movie in st.session_state.tmdb_results[:5]:
             st.markdown(f"**{movie['title']}** ({movie.get('release_date', 'N/A')[:4]})")
     else:
-        st.error("❌ No movies found with your current filters. Try relaxing some preferences.")
+        st.error("❌ No movies found with your preferences.")
 
-# --- Use GPT to recommend top 5 ---
-if 'tmdb_results' in locals() and tmdb_results and st.button("🤖 Recommend Top 5 with AI"):
-    with st.spinner("🌟 Asking GPT to rank the best movies for you..."):
-        selected_movies = select_movies_with_openai(tmdb_results, answers)
+# --- Recommend with OpenAI ---
+if st.session_state.tmdb_results and st.button("🤖 Recommend Top 5 with AI"):
+    with st.spinner("Asking OpenAI..."):
+        st.session_state.selected_movies = select_movies_with_openai(st.session_state.tmdb_results, st.session_state.answers)
 
-    if selected_movies:
-        st.markdown("## 🎥 Top 5 AI-Recommended Movies Based on Your Preferences:")
-        for movie in selected_movies:
-            st.markdown(f"- **{movie}**")
+    if st.session_state.selected_movies:
+        st.markdown("### 🌟 AI-Recommended Top 5:")
+        for title in st.session_state.selected_movies:
+            st.markdown(f"- **{title}**")
     else:
-        st.error("⚠️ OpenAI did not return any suggestions.")
-
-# --- Function to get streaming info ---
-def get_streaming_info(movie_id, country_code="PT"):
-    url = f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers?api_key={TMDB_API_KEY}"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        country_data = data.get("results", {}).get(country_code, {})
-        if not country_data:
-            return None
-
-        link = country_data.get("link")
-        flatrate = country_data.get("flatrate", [])
-        rent = country_data.get("rent", [])
-        buy = country_data.get("buy", [])
-
-        providers = {
-            "subscription": [p['provider_name'] for p in flatrate] if flatrate else [],
-            "rent": [p['provider_name'] for p in rent] if rent else [],
-            "buy": [p['provider_name'] for p in buy] if buy else [],
-            "link": link
-        }
-        return providers
-    except Exception as e:
-        st.error(f"Error fetching streaming info: {e}")
-        return None
-
-# --- Display AI-ranked movies with fuzzy match, poster, and streaming info ---
-if 'tmdb_results' in locals() and tmdb_results and 'selected_movies' in locals() and selected_movies:
-    st.markdown("### 🎥 Your Personalized Movie Suggestions")
-
-    shown_titles = set()
-    tmdb_titles = [movie['title'] for movie in tmdb_results]
-
-    for title in selected_movies:
-        clean_title = re.sub(r"\s*\(\d{4}\)$", "", title).strip()
-        match = difflib.get_close_matches(clean_title, tmdb_titles, n=1, cutoff=0.8)
-        movie_data = next((m for m in tmdb_results if m['title'] == match[0]), None) if match else None
-
-        if movie_data and movie_data['title'] not in shown_titles:
-            shown_titles.add(movie_data['title'])
-
-            title = movie_data['title']
-            year = movie_data.get('release_date', 'N/A')[:4]
-            overview = movie_data.get('overview', 'No synopsis available.')
-            poster_path = movie_data.get('poster_path')
-            movie_id = movie_data['id']
-
-            st.markdown(f"### 🎬 {title} ({year})")
-            if poster_path:
-                st.image(f"https://image.tmdb.org/t/p/w500{poster_path}", width=300)
-            st.write(overview)
-
-            streaming_info = get_streaming_info(movie_id, country_code="PT")
-            if streaming_info:
-                st.markdown("#### 📺 Streaming Availability (Portugal):")
-                if streaming_info['subscription']:
-                    st.markdown("**Included with subscription:**")
-                    for provider in streaming_info['subscription']:
-                        st.markdown(f"- {provider}")
-                if streaming_info['rent']:
-                    st.markdown("**Available for rent:**")
-                    for provider in streaming_info['rent']:
-                        st.markdown(f"- {provider}")
-                if streaming_info['buy']:
-                    st.markdown("**Available for purchase:**")
-                    for provider in streaming_info['buy']:
-                        st.markdown(f"- {provider}")
-                if streaming_info['link']:
-                    st.markdown(f"[See all options]({streaming_info['link']})")
-            else:
-                st.info("No streaming information available for Portugal.")
-
-            st.markdown("---")
+        st.error("❌ GPT did not return recommendations.")
