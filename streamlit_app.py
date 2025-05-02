@@ -282,3 +282,5 @@ if 'tmdb_results' in locals() and tmdb_results and 'selected_movies' in locals()
 
             st.markdown("---")
 
+if st.checkbox("🔍 Debug answers"):
+    st.write(answers)
