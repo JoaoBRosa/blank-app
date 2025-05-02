@@ -162,4 +162,4 @@ if st.session_state.recommended:
         st.write(movie_data.get("overview", "No synopsis available."))
 
         if st.button("🔄 Try Another"):
-            st.session_state.recommended = select_single_movie_with_openai(st.session_state.tmdb_results, answers)
+            st.session_state.recommended = select_single_movie_with_openai(st.session_state.tmdb_results, st.session_state.answers)
