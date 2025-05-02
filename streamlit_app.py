@@ -50,14 +50,10 @@ Movies List:"""
         st.error(f"❌ OpenAI API error: {e}")
         return []
 
-# --- Initialize or retrieve stored answers ---
-if "answers" not in st.session_state:
-    st.session_state.answers = {}
-
-answers = st.session_state.answers  # reference for convenience
-
 # --- Streamlit UI: Ask questions and collect answers ---
 st.title("🎬 AI Movie Recommender")
+
+answers = {}
 
 with st.form("preferences_form"):
     st.subheader("1. Basic Questions")
@@ -81,10 +77,10 @@ if submitted:
     if not genre:
         st.warning("⚠️ You must choose at least one genre to continue.")
     else:
-        st.session_state.answers['duration'] = duration
-        st.session_state.answers['language'] = language
-        st.session_state.answers['genre'] = genre
-        st.session_state.answers['release_year'] = release_year
+        answers['duration'] = duration
+        answers['language'] = language
+        answers['genre'] = genre
+        answers['release_year'] = release_year
         st.success("✅ Preferences collected. Continue to the next section.")
 
 with st.form("mood_preferences"):
@@ -285,6 +281,3 @@ if 'tmdb_results' in locals() and tmdb_results and 'selected_movies' in locals()
                 st.info("No streaming information available for Portugal.")
 
             st.markdown("---")
-
-if st.checkbox("🔍 Debug answers"):
-    st.write(answers)
