@@ -1,13 +1,15 @@
 import streamlit as st
-import openai
 import requests
 import difflib
 import re
 
-# --- SECURE API KEYS FROM .streamlit/secrets.toml ---
+# ✅ NEW OpenAI SDK v1.x
+from openai import OpenAI
+
+# --- SECURE API KEYS ---
 TMDB_API_KEY = st.secrets["api_keys"]["tmdb"]
 OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
-openai.api_key = OPENAI_API_KEY
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- CONSTANTS ---
 GENRE_MAP = {
@@ -60,7 +62,7 @@ def search_tmdb_movies(answers):
     return results
 
 
-# --- GPT SELECTION ---
+# --- OPENAI GPT RECOMMENDATION ---
 def select_movies_with_openai(movies, prefs):
     prompt = f"""Given the list of movies and the user's preferences, rank the 5 movies that best fit the user's mood, company, with kids, tone, popularity, real or fiction, discussion, and soundtrack preferences.
 
@@ -85,14 +87,14 @@ Movies List:"""
 
     prompt += "\n\nNow, rank the 5 most suitable movies from this list. Return only the titles."
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=500,
         temperature=0.5
     )
 
-    selected = response['choices'][0]['message']['content'].strip().split('\n')
+    selected = response.choices[0].message.content.strip().split('\n')
     return [re.sub(r"^[\d\-\.\*\s]+", "", m).strip() for m in selected][:5]
 
 
@@ -138,12 +140,4 @@ if submitted:
                 shown_titles = set()
                 for title in selected:
                     clean_title = re.sub(r"\s*\(\d{4}\)$", "", title).strip()
-                    match = difflib.get_close_matches(clean_title, [m['title'] for m in tmdb_results], n=1, cutoff=0.8)
-                    movie_data = next((m for m in tmdb_results if m['title'] == match[0]), None) if match else None
-
-                    if movie_data and movie_data['title'] not in shown_titles:
-                        shown_titles.add(movie_data['title'])
-                        st.markdown(f"### 🎬 {movie_data['title']} ({movie_data.get('release_date', 'N/A')[:4]})")
-                        if movie_data.get("poster_path"):
-                            st.image(f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}", width=300)
-                        st.write(movie_data.get("overview", "No synopsis available."))
+                    match = difflib.get_close_matches(
