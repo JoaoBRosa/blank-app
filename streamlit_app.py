@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 import difflib
@@ -11,17 +12,9 @@ OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
 # --- Initialize OpenAI client ---
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- Session State Initialization ---
-if 'answers' not in st.session_state:
-    st.session_state.answers = {}
-if 'tmdb_results' not in st.session_state:
-    st.session_state.tmdb_results = []
-if 'selected_movies' not in st.session_state:
-    st.session_state.selected_movies = []
-
 # --- OpenAI movie selection based on preferences ---
-def select_movies_with_openai(movies, user_preferences):
-    prompt = f"""Given the list of movies and the user's preferences, choose 5 movies that best fit the user's mood, company, with kids, tone, popularity, real or fiction, discussion, and soundtrack preferences.
+def select_single_movie_with_openai(movies, user_preferences):
+    prompt = f"""Given the list of movies and the user's preferences, choose ONE movie that best fits the user's mood, company, with kids, tone, popularity, real or fiction, discussion, and soundtrack preferences.
 
 User's Preferences:
 Mood: {user_preferences['mood']}
@@ -42,24 +35,25 @@ Movies List:"""
         genres = ', '.join([str(genre) for genre in movie.get('genre_ids', [])])
         prompt += f"\n- {title} ({year}) | Language: {language} | Genres: {genres}"
 
-    prompt += "\n\nNow, select 5 movies from this list that best match the user's preferences. Return only the titles."
+    prompt += "\n\nNow, select ONE movie from this list that best matches the user's preferences. Return only the movie title."
 
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=500,
-            temperature=0.5
+            max_tokens=100,
+            temperature=0.7
         )
-        raw_output = response.choices[0].message.content.strip().split("\n")
-        selected = [m.strip("\u2022-1234567890. ").strip() for m in raw_output if m.strip()]
-        return selected[:5]
+        content = response.choices[0].message.content.strip()
+        return re.sub(r"^[\-\d\.\*\s]+", "", content).strip()
     except Exception as e:
         st.error(f"❌ OpenAI API error: {e}")
-        return []
+        return None
 
-# --- Streamlit UI ---
+# --- Streamlit UI: Collect Answers ---
 st.title("🎬 AI Movie Recommender")
+
+answers = {}
 
 with st.form("preferences_form"):
     st.subheader("1. Basic Questions")
@@ -79,15 +73,12 @@ with st.form("preferences_form"):
 
     submitted = st.form_submit_button("Next")
 
-if submitted:
-    if not genre:
-        st.warning("⚠️ You must choose at least one genre to continue.")
-    else:
-        st.session_state.answers['duration'] = duration
-        st.session_state.answers['language'] = language
-        st.session_state.answers['genre'] = genre
-        st.session_state.answers['release_year'] = release_year
-        st.success("✅ Preferences collected. Continue to the next section.")
+if submitted and genre:
+    answers['duration'] = duration
+    answers['language'] = language
+    answers['genre'] = genre
+    answers['release_year'] = release_year
+    st.success("✅ Preferences collected. Continue to the next section.")
 
 with st.form("mood_preferences"):
     st.subheader("2. Mood & Company")
@@ -99,38 +90,29 @@ with st.form("mood_preferences"):
         "Alone", "Friends", "Family", "Date", "Other"])
 
     with_kids = st.radio("2.3 Are you watching this film with kids?", ["Yes", "No"])
-
     tone = st.radio("2.4 Are you in the mood for something emotionally deep or something easygoing?", [
         "Emotionally deep", "Easygoing"])
 
     st.subheader("3. Popularity & Preferences")
-
-    popularity = st.radio("2.5 Would you prefer a widely known movie or something more under the radar?", [
+    popularity = st.radio("2.5 Do you want a well known movie or hidden gem?", [
         "I prefer well known", "Under the radar", "No preference"])
-
-    real_or_fiction = st.radio("2.6 Do you lean toward stories inspired by real events or fictional narratives?", [
+    real_or_fiction = st.radio("2.6 Real or fictional?", [
         "Real events", "Fictional Narratives", "No preference"])
-
-    discussion = st.radio("2.7 Would you like a movie that sparks conversation afterward?", [
+    discussion = st.radio("2.7 Want something to discuss after?", [
         "Yes", "No", "No preference"])
-
-    soundtrack = st.radio("2.8 Would you like a movie with a standout soundtrack or musical element?", [
+    soundtrack = st.radio("2.8 Strong soundtrack important?", [
         "Yes", "No", "No preference"])
 
     submitted_2 = st.form_submit_button("Save Preferences")
 
 if submitted_2:
-    st.session_state.answers["mood"] = mood
-    st.session_state.answers["company"] = company
-    st.session_state.answers["with_kids"] = with_kids
-    st.session_state.answers["tone"] = tone
-    st.session_state.answers["popularity"] = popularity
-    st.session_state.answers["real_or_fiction"] = real_or_fiction
-    st.session_state.answers["discussion"] = discussion
-    st.session_state.answers["soundtrack"] = soundtrack
+    answers.update({
+        "mood": mood, "company": company, "with_kids": with_kids, "tone": tone,
+        "popularity": popularity, "real_or_fiction": real_or_fiction,
+        "discussion": discussion, "soundtrack": soundtrack
+    })
     st.success("✅ Mood and preferences saved.")
 
-# --- TMDb Search ---
 def search_tmdb_movies(answers):
     genre_map = {
         "Action": 28, "Comedy": 35, "Drama": 18, "Sci-Fi": 878, "Romance": 10749,
@@ -150,17 +132,10 @@ def search_tmdb_movies(answers):
     min_year, max_year = selected_range if selected_range else (None, None)
 
     duration_pref = answers['duration']
-    if duration_pref == "Less than 90 minutes":
-        with_runtime = (0, 89)
-    elif duration_pref == "Around 90–120 minutes":
-        with_runtime = (0, 120)
-    elif duration_pref == "More than 2 hours":
-        with_runtime = (120, 400)
-    else:
-        with_runtime = (0, 400)
+    with_runtime = (0, 89) if duration_pref == "Less than 90 minutes" else                    (0, 120) if duration_pref == "Around 90–120 minutes" else                    (120, 400)
 
     results = []
-    for page in range(1, 3):
+    for page in range(1, 4):
         url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&language=en-US&sort_by=popularity.desc&page={page}"
         if genre_ids:
             url += f"&with_genres={','.join(genre_ids)}"
@@ -179,53 +154,44 @@ def search_tmdb_movies(answers):
 
     return results
 
-# --- Run TMDb Search ---
-if st.session_state.answers and st.button("🎥 Find Movies"):
-    with st.spinner("Fetching movies..."):
-        st.session_state.tmdb_results = search_tmdb_movies(st.session_state.answers)
+if answers and st.button("🎥 Find Movies"):
+    with st.spinner("Fetching movie list..."):
+        tmdb_results = search_tmdb_movies(answers)
+        if tmdb_results:
+            st.success(f"✅ {len(tmdb_results)} movies found. Now let's find your perfect match.")
+            st.session_state["tmdb_results"] = tmdb_results
+            st.session_state["selected_movie"] = None
+        else:
+            st.error("❌ No movies found. Try different filters.")
 
-    if st.session_state.tmdb_results:
-        st.success(f"✅ Found {len(st.session_state.tmdb_results)} movie(s).")
-        for movie in st.session_state.tmdb_results[:5]:
-            st.markdown(f"**{movie['title']}** ({movie.get('release_date', 'N/A')[:4]})")
-    else:
-        st.error("❌ No movies found with your preferences.")
+# --- AI Recommendation (ONE MOVIE) ---
+if "tmdb_results" in st.session_state and st.button("🤖 Recommend Me a Movie"):
+    with st.spinner("Asking AI for the best choice..."):
+        selected_title = select_single_movie_with_openai(st.session_state["tmdb_results"], answers)
+        if selected_title:
+            st.session_state["selected_movie"] = selected_title
+        else:
+            st.error("⚠️ No movie recommended.")
 
-# --- Recommend with OpenAI ---
-if st.session_state.tmdb_results and st.button("🤖 Recommend Top 5 with AI"):
-    with st.spinner("Asking OpenAI..."):
-        st.session_state.selected_movies = select_movies_with_openai(st.session_state.tmdb_results, st.session_state.answers)
+# --- Show AI Choice ---
+if "selected_movie" in st.session_state and st.session_state["selected_movie"]:
+    st.markdown("## 🧠 AI-Recommended Movie")
 
-    if st.session_state.selected_movies:
-        st.markdown("### 🌟 AI-Recommended Top 5:")
-        for title in st.session_state.selected_movies:
-            st.markdown(f"- **{title}**")
-    else:
-        st.error("❌ GPT did not return recommendations.")
+    tmdb_titles = [m["title"] for m in st.session_state["tmdb_results"]]
+    match = difflib.get_close_matches(st.session_state["selected_movie"], tmdb_titles, n=1, cutoff=0.8)
+    movie_data = next((m for m in st.session_state["tmdb_results"] if m["title"] == match[0]), None) if match else None
 
-# --- Display AI-recommended Movies with Descriptions and Posters ---
-if 'tmdb_results' in locals() and tmdb_results and 'selected_movies' in locals() and selected_movies:
-    st.markdown("## 🌟 AI-Recommended Top 5:")
+    if movie_data:
+        title = movie_data["title"]
+        year = movie_data.get("release_date", "N/A")[:4]
+        overview = movie_data.get("overview", "No synopsis available.")
+        poster = movie_data.get("poster_path")
 
-    shown_titles = set()
-    tmdb_titles = [movie['title'] for movie in tmdb_results]
+        st.markdown(f"### 🎬 {title} ({year})")
+        if poster:
+            st.image(f"https://image.tmdb.org/t/p/w500{poster}", width=300)
+        st.write(overview)
 
-    for title in selected_movies:
-        clean_title = re.sub(r"\s*\(\d{4}\)$", "", title).strip()
-        match = difflib.get_close_matches(clean_title, tmdb_titles, n=1, cutoff=0.8)
-        movie_data = next((m for m in tmdb_results if m['title'] == match[0]), None) if match else None
-
-        if movie_data and movie_data['title'] not in shown_titles:
-            shown_titles.add(movie_data['title'])
-
-            title = movie_data['title']
-            year = movie_data.get('release_date', 'N/A')[:4]
-            overview = movie_data.get('overview', 'No description available.')
-            poster_path = movie_data.get('poster_path')
-
-            st.markdown(f"### 🎬 {title} ({year})")
-            if poster_path:
-                st.image(f"https://image.tmdb.org/t/p/w500{poster_path}", width=300)
-            st.write(overview)
-            st.markdown("---")
+        if st.button("🔄 Recommend Another"):
+            del st.session_state["selected_movie"]
 
