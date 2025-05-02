@@ -1,12 +1,12 @@
 import streamlit as st
-import streamlit as st
+import openai
 import requests
 import difflib
 import re
 
-# --- API KEYS ---
-TMDB_API_KEY = "32f9a754dffed593776c81092af74920"
-OPENAI_API_KEY = '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'
+# --- SECURE API KEYS FROM .streamlit/secrets.toml ---
+TMDB_API_KEY = st.secrets["api_keys"]["tmdb"]
+OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
 openai.api_key = OPENAI_API_KEY
 
 # --- CONSTANTS ---
@@ -25,6 +25,7 @@ YEAR_RANGE_MAP = {
 }
 
 
+# --- TMDB SEARCH FUNCTION ---
 def search_tmdb_movies(answers):
     genre_ids = [str(GENRE_MAP[g]) for g in answers['genre']]
     language_codes = [LANGUAGE_MAP[lang] for lang in answers['language'] if lang != "No preference"]
@@ -59,6 +60,7 @@ def search_tmdb_movies(answers):
     return results
 
 
+# --- GPT SELECTION ---
 def select_movies_with_openai(movies, prefs):
     prompt = f"""Given the list of movies and the user's preferences, rank the 5 movies that best fit the user's mood, company, with kids, tone, popularity, real or fiction, discussion, and soundtrack preferences.
 
@@ -95,7 +97,7 @@ Movies List:"""
 
 
 # --- STREAMLIT UI ---
-st.title("🎬 AI-Powered Movie Recommender")
+st.title("🎬 AI Movie Recommender")
 
 with st.form("preferences_form"):
     duration = st.selectbox("⏱️ How much time do you have?", ["Less than 90 minutes", "Around 90–120 minutes", "More than 2 hours"])
@@ -141,7 +143,6 @@ if submitted:
 
                     if movie_data and movie_data['title'] not in shown_titles:
                         shown_titles.add(movie_data['title'])
-
                         st.markdown(f"### 🎬 {movie_data['title']} ({movie_data.get('release_date', 'N/A')[:4]})")
                         if movie_data.get("poster_path"):
                             st.image(f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}", width=300)
