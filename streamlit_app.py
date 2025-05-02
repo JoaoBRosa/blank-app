@@ -1,6 +1,5 @@
 import streamlit as st
 import streamlit as st
-import openai
 import requests
 import difflib
 import re
