@@ -3,15 +3,14 @@ import requests
 import difflib
 import re
 
-# ✅ NEW OpenAI SDK v1.x
 from openai import OpenAI
 
-# --- SECURE API KEYS ---
+# --- Load API keys from secrets ---
 TMDB_API_KEY = st.secrets["api_keys"]["tmdb"]
 OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- CONSTANTS ---
+# --- Constants ---
 GENRE_MAP = {
     "Action": 28, "Comedy": 35, "Drama": 18, "Sci-Fi": 878, "Romance": 10749,
     "Thriller": 53, "Horror": 27, "Animation": 16, "Documentary": 99, "Fantasy": 14
@@ -26,8 +25,7 @@ YEAR_RANGE_MAP = {
     "2000-2010": (2000, 2010), "2010–2020": (2010, 2020), "2020-2024": (2020, 2024)
 }
 
-
-# --- TMDB SEARCH FUNCTION ---
+# --- TMDb search ---
 def search_tmdb_movies(answers):
     genre_ids = [str(GENRE_MAP[g]) for g in answers['genre']]
     language_codes = [LANGUAGE_MAP[lang] for lang in answers['language'] if lang != "No preference"]
@@ -61,8 +59,7 @@ def search_tmdb_movies(answers):
 
     return results
 
-
-# --- OPENAI GPT RECOMMENDATION ---
+# --- OpenAI GPT Ranking ---
 def select_movies_with_openai(movies, prefs):
     prompt = f"""Given the list of movies and the user's preferences, rank the 5 movies that best fit the user's mood, company, with kids, tone, popularity, real or fiction, discussion, and soundtrack preferences.
 
@@ -97,8 +94,7 @@ Movies List:"""
     selected = response.choices[0].message.content.strip().split('\n')
     return [re.sub(r"^[\d\-\.\*\s]+", "", m).strip() for m in selected][:5]
 
-
-# --- STREAMLIT UI ---
+# --- Streamlit UI ---
 st.title("🎬 AI Movie Recommender")
 
 with st.form("preferences_form"):
@@ -140,4 +136,12 @@ if submitted:
                 shown_titles = set()
                 for title in selected:
                     clean_title = re.sub(r"\s*\(\d{4}\)$", "", title).strip()
-                    match = difflib.get_close_matches(
+                    match = difflib.get_close_matches(clean_title, [m['title'] for m in tmdb_results], n=1, cutoff=0.8)
+                    movie_data = next((m for m in tmdb_results if m['title'] == match[0]), None) if match else None
+
+                    if movie_data and movie_data['title'] not in shown_titles:
+                        shown_titles.add(movie_data['title'])
+                        st.markdown(f"### 🎬 {movie_data['title']} ({movie_data.get('release_date', 'N/A')[:4]})")
+                        if movie_data.get("poster_path"):
+                            st.image(f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}", width=300)
+                        st.write(movie_data.get("overview", "No synopsis available."))
