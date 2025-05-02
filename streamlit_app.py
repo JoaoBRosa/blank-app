@@ -202,3 +202,30 @@ if st.session_state.tmdb_results and st.button("🤖 Recommend Top 5 with AI"):
             st.markdown(f"- **{title}**")
     else:
         st.error("❌ GPT did not return recommendations.")
+
+# --- Display AI-recommended Movies with Descriptions and Posters ---
+if 'tmdb_results' in locals() and tmdb_results and 'selected_movies' in locals() and selected_movies:
+    st.markdown("## 🌟 AI-Recommended Top 5:")
+
+    shown_titles = set()
+    tmdb_titles = [movie['title'] for movie in tmdb_results]
+
+    for title in selected_movies:
+        clean_title = re.sub(r"\s*\(\d{4}\)$", "", title).strip()
+        match = difflib.get_close_matches(clean_title, tmdb_titles, n=1, cutoff=0.8)
+        movie_data = next((m for m in tmdb_results if m['title'] == match[0]), None) if match else None
+
+        if movie_data and movie_data['title'] not in shown_titles:
+            shown_titles.add(movie_data['title'])
+
+            title = movie_data['title']
+            year = movie_data.get('release_date', 'N/A')[:4]
+            overview = movie_data.get('overview', 'No description available.')
+            poster_path = movie_data.get('poster_path')
+
+            st.markdown(f"### 🎬 {title} ({year})")
+            if poster_path:
+                st.image(f"https://image.tmdb.org/t/p/w500{poster_path}", width=300)
+            st.write(overview)
+            st.markdown("---")
+
