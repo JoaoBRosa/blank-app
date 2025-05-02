@@ -28,18 +28,18 @@ def search_tmdb_movies(answers):
 
     genres = [str(genre_map[g]) for g in answers["genre"]]
     langs  = [language_map[l] for l in answers["language"] if l!="No preference"]
-    min_y, max_y = year_map.get(answers["release_year"], (None, None))
+    min_y, max_y = year_map.get(answers["release_year"], (None,None))
 
     duration = answers["duration"]
     if duration == "Less than 90 minutes":
-        runtime = (0, 89)
+        runtime = (0,89)
     elif duration == "Around 90–120 minutes":
-        runtime = (0, 120)
+        runtime = (0,120)
     else:
-        runtime = (90, 400)
+        runtime = (90,400)
 
     results = []
-    for page in range(1, 4):
+    for page in range(1,4):
         url = (
             f"https://api.themoviedb.org/3/discover/movie?"
             f"api_key={TMDB_API_KEY}&sort_by=popularity.desc&page={page}"
@@ -57,14 +57,14 @@ def search_tmdb_movies(answers):
         r = requests.get(url)
         if r.ok:
             for m in r.json().get("results", []):
-                if all(int(g) in m["genre_ids"] for g in genres):
+                if all(int(gid) in m["genre_ids"] for gid in genres):
                     results.append(m)
     return results
 
-# --- Helper: GPT Pick One Movie ---
+# --- Helper: GPT picks one movie ---
 def pick_movie(movies, prefs, prev=None):
     prompt = "🎯 From the list below, pick ONE movie that best fits the user's preferences.\n\n"
-    prompt += "📝 Preferences:\n" + "\n".join(f"- {k}: {v}" for k, v in prefs.items()) + "\n\n📽 Movies List:\n"
+    prompt += "📝 Preferences:\n" + "\n".join(f"- {k}: {v}" for k,v in prefs.items()) + "\n\n📽 Movies List:\n"
     for m in movies[:30]:
         prompt += f"- {m['title']} ({m.get('release_date','')[:4]})\n"
     if prev:
@@ -79,11 +79,11 @@ def pick_movie(movies, prefs, prev=None):
     )
     return res.choices[0].message.content.strip()
 
-# --- Helper: Find Details ---
+# --- Helper: Find details ---
 def find_details(title, pool):
     clean = re.sub(r"\s*\(\d{4}\)$","", title).strip()
     match = difflib.get_close_matches(clean, [m["title"] for m in pool], n=1, cutoff=0.7)
-    return next((m for m in pool if m["title"] == match[0]), None) if match else None
+    return next((m for m in pool if m["title"]==match[0]), None) if match else None
 
 # --- UI & State Init ---
 st.title("🍿 AI Movie Recommender")
@@ -93,8 +93,8 @@ if "tmdb_results" not in st.session_state:
 if "recommendation" not in st.session_state:
     st.session_state.recommendation = None
 
-# --- Preferences Form ---
-with st.form("prefs"):
+# --- Preferences Form (renamed key) ---
+with st.form("preferences_form"):
     st.header("1️⃣ Tell us about your preferences")
     duration     = st.radio("⏱️ How much time for a movie?", ["Less than 90 minutes","Around 90–120 minutes","More than 2 hours"])
     language     = st.multiselect("🌐 Preferred languages", ["English","French","Spanish","Korean","Italian","Portuguese","No preference"])
@@ -106,12 +106,15 @@ with st.form("prefs"):
     company      = st.selectbox("👥 Watching with", ["Alone","Friends","Family","Date","Other"])
     with_kids    = st.radio("👶 With kids?", ["Yes","No"])
     tone         = st.radio("💭 Tone preference", ["Emotionally deep","Easygoing"])
+    st.markdown("---")
+    st.header("3️⃣ Popularity & Extras")
     popularity   = st.radio("🔥 Popularity level", ["Well known","Under the radar","No preference"])
     real_or_fic  = st.radio("📖 Real or Fictional story?", ["Real events","Fictional Narratives","No preference"])
     discussion   = st.radio("💬 Conversation-worthy?", ["Yes","No","No preference"])
     soundtrack   = st.radio("🎵 Importance of soundtrack", ["Yes","No","No preference"])
     find = st.form_submit_button("🔍 Find Movies")
 
+# --- On Find ---
 if find:
     st.session_state.prefs = {
         "duration":duration,
@@ -152,4 +155,4 @@ if rec and st.session_state.tmdb_results:
                 prev=st.session_state.recommendation
             )
     else:
-        st.warning("⚠️ Couldn't find details for the AI pick.")
+        st.warning("⚠️ Couldn't find details for the AI recommendation.")
