@@ -9,8 +9,8 @@ TMDB_API_KEY = st.secrets["api_keys"]["tmdb"]
 OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- Movie Selector Using GPT ---
-def select_single_movie_with_openai(movies, user_preferences):
+# --- AI Movie Selector with Repeat Avoidance ---
+def select_single_movie_with_openai(movies, user_preferences, previous_title=None):
     prompt = f"""Given the list of movies and the user's preferences, choose ONE movie that best fits the user's mood, company, with kids, tone, popularity, real or fiction, discussion, and soundtrack preferences.
 
 User's Preferences:
@@ -32,17 +32,20 @@ Movies List:"""
         genres = ', '.join([str(g) for g in movie.get('genre_ids', [])])
         prompt += f"\n- {title} ({year}) | Language: {language} | Genres: {genres}"
 
-    prompt += "\n\nChoose ONE movie from this list. Return only the title."
+    if previous_title:
+        prompt += f"\n\nPreviously recommended: {previous_title}. Please pick a different one if possible."
+
+    prompt += "\n\nChoose ONE movie from this list that best matches the user's preferences. Return only the movie title."
 
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=50,
-            temperature=0.7
+            temperature=0.9
         )
         movie = response.choices[0].message.content.strip()
-        return re.sub(r"^[\d\-\.\* ]+", "", movie)
+        return re.sub(r"^[\d\-\*\.\s]+", "", movie)
     except Exception as e:
         st.error(f"❌ OpenAI API error: {e}")
         return None
@@ -92,7 +95,7 @@ def search_tmdb_movies(answers):
             results += response.json().get("results", [])
     return results
 
-# --- UI ---
+# --- Streamlit UI ---
 st.title("🎬 AI Movie Recommender")
 
 if "tmdb_results" not in st.session_state:
@@ -100,7 +103,6 @@ if "tmdb_results" not in st.session_state:
 if "recommended" not in st.session_state:
     st.session_state.recommended = None
 
-# --- Forms ---
 with st.form("preferences_form"):
     st.subheader("1. Basic Questions")
     duration = st.radio("⏱️ How much time do you have?", ["Less than 90 minutes", "Around 90–120 minutes", "More than 2 hours"])
@@ -109,26 +111,23 @@ with st.form("preferences_form"):
     release_year = st.selectbox("📅 Release year", ["Before 1950", "1950-1980", "1980-2000", "2000-2010", "2010–2020", "2020-2024", "No preference"])
     submit1 = st.form_submit_button("Next")
 
-if submit1:
-    if not genre:
-        st.warning("Please select at least one genre.")
-    else:
-        st.session_state.answers = {
-            "duration": duration,
-            "language": language,
-            "genre": genre,
-            "release_year": release_year
-        }
+if submit1 and genre:
+    st.session_state.answers = {
+        "duration": duration,
+        "language": language,
+        "genre": genre,
+        "release_year": release_year
+    }
 
 with st.form("details_form"):
     st.subheader("2. Mood & Preferences")
     mood = st.multiselect("Mood:", ["Happy", "Sad", "Romantic", "Adventurous", "Tense / Anxious", "I don't really know"])
-    company = st.selectbox("Who are you watching with?", ["Alone", "Friends", "Family", "Date", "Other"])
-    with_kids = st.radio("Kids watching?", ["Yes", "No"])
+    company = st.selectbox("Watching with:", ["Alone", "Friends", "Family", "Date", "Other"])
+    with_kids = st.radio("Are kids watching?", ["Yes", "No"])
     tone = st.radio("Tone?", ["Emotionally deep", "Easygoing"])
     popularity = st.radio("Popularity", ["I prefer well known", "Under the radar", "No preference"])
-    real_or_fiction = st.radio("Real or Fiction", ["Real events", "Fictional Narratives", "No preference"])
-    discussion = st.radio("Sparks discussion?", ["Yes", "No", "No preference"])
+    real_or_fiction = st.radio("Story Type", ["Real events", "Fictional Narratives", "No preference"])
+    discussion = st.radio("Conversation-worthy?", ["Yes", "No", "No preference"])
     soundtrack = st.radio("Strong soundtrack?", ["Yes", "No", "No preference"])
     submit2 = st.form_submit_button("Find Movies")
 
@@ -147,9 +146,12 @@ if submit2:
         st.error("❌ No movies found.")
     else:
         st.success(f"✅ Found {len(st.session_state.tmdb_results)} movies.")
-        st.session_state.recommended = select_single_movie_with_openai(st.session_state.tmdb_results, answers)
+        st.session_state.recommended = select_single_movie_with_openai(
+            st.session_state.tmdb_results,
+            st.session_state.answers
+        )
 
-# --- Recommendation Display ---
+# --- AI Recommendation Display ---
 if st.session_state.recommended:
     st.markdown("### 🌟 AI-Recommended Movie")
     match = difflib.get_close_matches(st.session_state.recommended, [m['title'] for m in st.session_state.tmdb_results], n=1, cutoff=0.7)
@@ -162,4 +164,8 @@ if st.session_state.recommended:
         st.write(movie_data.get("overview", "No synopsis available."))
 
         if st.button("🔄 Try Another"):
-            st.session_state.recommended = select_single_movie_with_openai(st.session_state.tmdb_results, st.session_state.answers)
+            st.session_state.recommended = select_single_movie_with_openai(
+                st.session_state.tmdb_results,
+                st.session_state.answers,
+                previous_title=st.session_state.recommended
+            )
