@@ -61,7 +61,25 @@ def search_tmdb_movies(answers):
                     results.append(m)
     return results
 
-# --- Helper: GPT picks one movie ---
+# --- Helper: Get Streaming Providers ---
+def get_streaming_info(movie_id, country_code="PT"):
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers?api_key={TMDB_API_KEY}"
+    r = requests.get(url)
+    if not r.ok:
+        return None
+    data = r.json().get("results", {}).get(country_code, {})
+    if not data:
+        return None
+
+    providers = {
+        "subscription": [p["provider_name"] for p in data.get("flatrate", [])],
+        "rent":         [p["provider_name"] for p in data.get("rent", [])],
+        "buy":          [p["provider_name"] for p in data.get("buy", [])],
+        "link":         data.get("link")
+    }
+    return providers
+
+# --- Helper: GPT selects one movie ---
 def pick_movie(movies, prefs, prev=None):
     prompt = "🎯 From the list below, pick ONE movie that best fits the user's preferences.\n\n"
     prompt += "📝 Preferences:\n" + "\n".join(f"- {k}: {v}" for k,v in prefs.items()) + "\n\n📽 Movies List:\n"
@@ -79,7 +97,7 @@ def pick_movie(movies, prefs, prev=None):
     )
     return res.choices[0].message.content.strip()
 
-# --- Helper: Find details ---
+# --- Helper: Find matched details ---
 def find_details(title, pool):
     clean = re.sub(r"\s*\(\d{4}\)$","", title).strip()
     match = difflib.get_close_matches(clean, [m["title"] for m in pool], n=1, cutoff=0.7)
@@ -93,7 +111,7 @@ if "tmdb_results" not in st.session_state:
 if "recommendation" not in st.session_state:
     st.session_state.recommendation = None
 
-# --- Preferences Form (renamed key) ---
+# --- Preferences Form ---
 with st.form("preferences_form"):
     st.header("1️⃣ Tell us about your preferences")
     duration     = st.radio("⏱️ How much time for a movie?", ["Less than 90 minutes","Around 90–120 minutes","More than 2 hours"])
@@ -102,20 +120,17 @@ with st.form("preferences_form"):
     release_year = st.selectbox("📅 Release year preference", ["Before 1950","1950-1980","1980-2000","2000-2010","2010–2020","2020-2024","No preference"])
     st.markdown("---")
     st.header("2️⃣ Mood & Extras")
-    mood         = st.multiselect("😊 Your current mood", ["Happy","Sad","Romantic","Adventurous","Tense/Anxious","I don't really know"])
-    company      = st.selectbox("👥 Watching with", ["Alone","Friends","Family","Date","Other"])
+    mood         = st.multiselect("😊 How are you feeling?", ["Happy","Sad","Romantic","Adventurous","Tense/Anxious","I don't really know"])
+    company      = st.selectbox("👥 Who are you watching with?", ["Alone","Friends","Family","Date","Other"])
     with_kids    = st.radio("👶 With kids?", ["Yes","No"])
     tone         = st.radio("💭 Tone preference", ["Emotionally deep","Easygoing"])
-    st.markdown("---")
-    st.header("3️⃣ Popularity & Extras")
     popularity   = st.radio("🔥 Popularity level", ["Well known","Under the radar","No preference"])
-    real_or_fic  = st.radio("📖 Real or Fictional story?", ["Real events","Fictional Narratives","No preference"])
+    real_or_fic  = st.radio("📖 Story type", ["Real events","Fictional Narratives","No preference"])
     discussion   = st.radio("💬 Conversation-worthy?", ["Yes","No","No preference"])
     soundtrack   = st.radio("🎵 Importance of soundtrack", ["Yes","No","No preference"])
-    find = st.form_submit_button("🔍 Find Movies")
+    find_clicked = st.form_submit_button("🔍 Find Movies")
 
-# --- On Find ---
-if find:
+if find_clicked:
     st.session_state.prefs = {
         "duration":duration,
         "language":language,
@@ -136,18 +151,48 @@ if find:
         st.error("❌ No movies found.")
     else:
         st.success(f"✅ Found {len(st.session_state.tmdb_results)} movies!")
-        st.session_state.recommendation = pick_movie(st.session_state.tmdb_results, st.session_state.prefs)
+        st.session_state.recommendation = pick_movie(
+            st.session_state.tmdb_results,
+            st.session_state.prefs
+        )
 
-# --- Display Recommendation ---
+# --- Display Recommendation & Streaming Links ---
 rec = st.session_state.get("recommendation")
 if rec and st.session_state.tmdb_results:
     st.markdown("## 🌟 AI-Recommended Movie")
     detail = find_details(rec, st.session_state.tmdb_results)
     if detail:
-        st.markdown(f"### 🎬 {detail['title']} ({detail.get('release_date','')[:4]})")
+        title = detail["title"]
+        year  = detail.get("release_date","")[:4]
+        overview = detail.get("overview","No synopsis available.")
+
+        st.markdown(f"### 🎬 {title} ({year})")
         if detail.get("poster_path"):
             st.image(f"https://image.tmdb.org/t/p/w500{detail['poster_path']}", width=300)
-        st.write(detail.get("overview","No synopsis available."))
+        st.write(overview)
+
+        # Fetch and show streaming providers
+        providers = get_streaming_info(detail["id"], country_code="PT")
+        if providers:
+            st.markdown("#### 📺 Where to Watch (Portugal)")
+            if providers["subscription"]:
+                st.markdown("**Included with subscription:**")
+                for p in providers["subscription"]:
+                    st.markdown(f"- {p}")
+            if providers["rent"]:
+                st.markdown("**Available to rent:**")
+                for p in providers["rent"]:
+                    st.markdown(f"- {p}")
+            if providers["buy"]:
+                st.markdown("**Available to buy:**")
+                for p in providers["buy"]:
+                    st.markdown(f"- {p}")
+            if providers["link"]:
+                st.markdown(f"[See all options]({providers['link']})")
+        else:
+            st.info("No streaming info found for Portugal.")
+
+        # Try another button
         if st.button("🔁 Try Another"):
             st.session_state.recommendation = pick_movie(
                 st.session_state.tmdb_results,
@@ -155,4 +200,4 @@ if rec and st.session_state.tmdb_results:
                 prev=st.session_state.recommendation
             )
     else:
-        st.warning("⚠️ Couldn't find details for the AI recommendation.")
+        st.warning("⚠️ Couldn't find details for the AI pick.")
