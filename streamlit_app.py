@@ -119,9 +119,25 @@ def pick_movie(movies, prefs, prev=None):
 
 # --- Helper: Find matched details ---
 def find_details(title, pool):
-    clean = re.sub(r"\s*\(\d{4}\)$","", title).strip()
-    match = difflib.get_close_matches(clean, [m["title"] for m in pool], n=1, cutoff=0.7)
-    return next((m for m in pool if m["title")==match[0]), None) if match else None
+    # Strip off any trailing “(YYYY)” from the title
+    clean = title
+    if clean.endswith(")") and "(" in clean:
+        clean = clean[:clean.rfind("(")].strip()
+    else:
+        clean = clean.strip()
+
+    # Build a list of just the titles
+    titles = [m["title"] for m in pool]
+    # Fuzzy-match against that list
+    matches = difflib.get_close_matches(clean, titles, n=1, cutoff=0.7)
+
+    # If we got a match, return the full movie dict
+    if matches:
+        return next((m for m in pool if m["title"] == matches[0]), None)
+
+    # Otherwise give up
+    return None
+
 
 # --- UI & State Init ---
 st.title("🍿 AI Movie Recommender")
