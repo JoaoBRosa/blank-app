@@ -3,13 +3,33 @@ import requests
 import difflib
 import re
 from openai import OpenAI
+import smtplib
+from email.message import EmailMessage
 
 # --- Load API keys from secrets.toml ---
 TMDB_API_KEY   = st.secrets["api_keys"]["tmdb"]
 OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
 
+# --- Load Email credentials from secrets.toml ---
+SMTP_SERVER = st.secrets["email"]["smtp_server"]
+SMTP_PORT   = st.secrets["email"]["smtp_port"]
+EMAIL_USER  = st.secrets["email"]["username"]
+EMAIL_PASS  = st.secrets["email"]["password"]
+
 # --- Initialize OpenAI client ---
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# --- Helper: send_email via SMTP SSL ---
+def send_email(subject: str, body: str, to_email: str):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_USER
+    msg["To"] = to_email
+    msg.set_content(body)
+
+    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as smtp:
+        smtp.login(EMAIL_USER, EMAIL_PASS)
+        smtp.send_message(msg)
 
 # --- Helper: TMDb Search ---
 def search_tmdb_movies(answers):
@@ -101,7 +121,7 @@ def pick_movie(movies, prefs, prev=None):
 def find_details(title, pool):
     clean = re.sub(r"\s*\(\d{4}\)$","", title).strip()
     match = difflib.get_close_matches(clean, [m["title"] for m in pool], n=1, cutoff=0.7)
-    return next((m for m in pool if m["title"]==match[0]), None) if match else None
+    return next((m for m in pool if m["title")==match[0]), None) if match else None
 
 # --- UI & State Init ---
 st.title("🍿 AI Movie Recommender")
@@ -192,12 +212,35 @@ if rec and st.session_state.tmdb_results:
         else:
             st.info("No streaming info found for Portugal.")
 
-        # Try another button
-        if st.button("🔁 Try Another"):
-            st.session_state.recommendation = pick_movie(
-                st.session_state.tmdb_results,
-                st.session_state.prefs,
-                prev=st.session_state.recommendation
+        # ➕ Add to my watchlist (email to yourself)
+        if st.button("➕ Add to my watchlist"):
+            subject = f"Watchlist: {title} ({year})"
+            body = (
+                f"Hi there,\n\n"
+                f"Don't forget to watch:\n\n"
+                f"{title} ({year})\n\n"
+                f"Synopsis:\n{overview}"
             )
+            send_email(subject, body, EMAIL_USER)
+            st.success("✅ Added to your watchlist and email sent!")
+
+        # 📧 Send to a friend
+        friend_email = st.text_input("📧 Friend's email address")
+        if friend_email and st.button("📤 Send to friend"):
+            subject = f"I Recommend You Watch: {title} ({year})"
+            body = (
+                f"Hey,\n\n"
+                f"I thought you might enjoy this movie:\n\n"
+                f"{title} ({year})\n\n"
+                f"{overview}\n\n"
+                f"Enjoy! 🍿"
+            )
+            try:
+                send_email(subject, body, friend_email)
+                st.success(f"🎉 Recommendation sent to {friend_email}!")
+            except Exception as e:
+                st.error(f"❌ Failed to send: {e}")
     else:
         st.warning("⚠️ Couldn't find details for the AI pick.")
+
+
