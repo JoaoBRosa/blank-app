@@ -242,5 +242,3 @@ if rec and st.session_state.tmdb_results:
                 st.error(f"❌ Failed to send: {e}")
     else:
         st.warning("⚠️ Couldn't find details for the AI pick.")
-
-
