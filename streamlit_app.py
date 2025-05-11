@@ -125,7 +125,7 @@ def find_details(title, pool):
     return next((m for m in pool if m["title"] == match[0]), None) if match else None
 
 # --- UI & Session State Setup ---
-st.title("🍿 Our movie recommendation for you")
+st.title("🍿Movie Reccomender")
 
 if "tmdb_results" not in st.session_state:
     st.session_state.tmdb_results = []
@@ -240,7 +240,7 @@ if rec and st.session_state.tmdb_results:
             st.success("✅ Added to your watchlist!")
 
         # 📧 Send to a friend
-        friend_email = st.text_input("📧 Do you want to share this movie with a friend? Write his email here!", key="friend_email")
+        friend_email = st.text_input("📧Do you want to receive this recommendation by email or share with a friend? Put here your email adress", key="friend_email")
         if friend_email and st.button("📤 Send to friend", key="send_to_friend"):
             subject = f"I Recommend You Watch: {title} ({year})"
             body    = f"Hey,\n\nI thought you might enjoy this movie:\n\n{title} ({year})\n\n{overview}\n\nEnjoy! 🍿"
