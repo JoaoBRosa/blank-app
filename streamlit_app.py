@@ -193,21 +193,39 @@ if find_clicked:
         )
 
 # --- Display Recommendation & Streaming Links ---
+# --- Display Recommendation & Streaming Links ---
 rec = st.session_state.get("recommendation")
 if rec and st.session_state.tmdb_results:
     st.markdown("## 🌟 AI-Recommended Movie")
+
     detail = find_details(rec, st.session_state.tmdb_results)
-    if detail:
-        title = detail["title"]
-        year  = detail.get("release_date","")[:4]
+    if not detail:
+        st.warning("⚠️ Couldn't find details for the AI pick.")
+    else:
+        title    = detail["title"]
+        year     = detail.get("release_date","")[:4]
         overview = detail.get("overview","No synopsis available.")
 
-        st.markdown(f"### 🎬 {title} ({year})")
-        if detail.get("poster_path"):
-            st.image(f"https://image.tmdb.org/t/p/w500{detail['poster_path']}", width=300)
-        st.write(overview)
+        # layout: poster + overview
+        cols = st.columns([1,2])
+        with cols[0]:
+            if detail.get("poster_path"):
+                st.image(f"https://image.tmdb.org/t/p/w500{detail['poster_path']}", width=200)
+        with cols[1]:
+            st.markdown(f"### 🎬 {title} ({year})")
+            st.write(overview)
 
-        # Fetch and show streaming providers
+        # 🔁 Try Another (always visible)
+        if st.button("🔁 Try Another", key="try_another"):
+            st.session_state.recommendation = pick_movie(
+                st.session_state.tmdb_results,
+                st.session_state.prefs,
+                prev=st.session_state.recommendation
+            )
+            # re‐run so new movie appears immediately
+            st.experimental_rerun()
+
+        # Now fetch & show streaming info
         providers = get_streaming_info(detail["id"], country_code="PT")
         if providers:
             st.markdown("#### 📺 Where to Watch (Portugal)")
@@ -227,6 +245,7 @@ if rec and st.session_state.tmdb_results:
                 st.markdown(f"[See all options]({providers['link']})")
         else:
             st.info("No streaming info found for Portugal.")
+
 
         # ➕ Add to my watchlist (email to yourself)
         if st.button("➕ Add to my watchlist"):
