@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import difflib
+import re
 from openai import OpenAI
 import smtplib
 from email.message import EmailMessage
@@ -46,19 +47,19 @@ def search_tmdb_movies(answers):
     }
 
     genres = [str(genre_map[g]) for g in answers["genre"]]
-    langs  = [language_map[l] for l in answers["language"] if l != "No preference"]
-    min_y, max_y = year_map.get(answers["release_year"], (None, None))
+    langs  = [language_map[l] for l in answers["language"] if l!="No preference"]
+    min_y, max_y = year_map.get(answers["release_year"], (None,None))
 
     duration = answers["duration"]
     if duration == "Less than 90 minutes":
-        runtime = (0, 89)
+        runtime = (0,89)
     elif duration == "Around 90–120 minutes":
-        runtime = (0, 120)
+        runtime = (0,120)
     else:
-        runtime = (90, 400)
+        runtime = (90,400)
 
     results = []
-    for page in range(1, 4):
+    for page in range(1,4):
         url = (
             f"https://api.themoviedb.org/3/discover/movie?"
             f"api_key={TMDB_API_KEY}&sort_by=popularity.desc&page={page}"
@@ -101,7 +102,7 @@ def get_streaming_info(movie_id, country_code="PT"):
 # --- Helper: GPT selects one movie ---
 def pick_movie(movies, prefs, prev=None):
     prompt = "🎯 From the list below, pick ONE movie that best fits the user's preferences.\n\n"
-    prompt += "📝 Preferences:\n" + "\n".join(f"- {k}: {v}" for k, v in prefs.items()) + "\n\n📽 Movies List:\n"
+    prompt += "📝 Preferences:\n" + "\n".join(f"- {k}: {v}" for k,v in prefs.items()) + "\n\n📽 Movies List:\n"
     for m in movies[:30]:
         prompt += f"- {m['title']} ({m.get('release_date','')[:4]})\n"
     if prev:
@@ -118,17 +119,25 @@ def pick_movie(movies, prefs, prev=None):
 
 # --- Helper: Find matched details ---
 def find_details(title, pool):
+    # Strip off any trailing “(YYYY)” from the title
     clean = title
     if clean.endswith(")") and "(" in clean:
         clean = clean[:clean.rfind("(")].strip()
     else:
         clean = clean.strip()
 
+    # Build a list of just the titles
     titles = [m["title"] for m in pool]
+    # Fuzzy-match against that list
     matches = difflib.get_close_matches(clean, titles, n=1, cutoff=0.7)
+
+    # If we got a match, return the full movie dict
     if matches:
         return next((m for m in pool if m["title"] == matches[0]), None)
+
+    # Otherwise give up
     return None
+
 
 # --- UI & State Init ---
 st.title("🍿 AI Movie Recommender")
@@ -159,18 +168,18 @@ with st.form("preferences_form"):
 
 if find_clicked:
     st.session_state.prefs = {
-        "duration":     duration,
-        "language":     language,
-        "genre":        genre,
-        "release_year": release_year,
-        "mood":         mood,
-        "company":      company,
-        "with_kids":    with_kids,
-        "tone":         tone,
-        "popularity":   popularity,
-        "real_or_fiction": real_or_fic,
-        "discussion":   discussion,
-        "soundtrack":   soundtrack
+        "duration":duration,
+        "language":language,
+        "genre":genre,
+        "release_year":release_year,
+        "mood":mood,
+        "company":company,
+        "with_kids":with_kids,
+        "tone":tone,
+        "popularity":popularity,
+        "real_or_fiction":real_or_fic,
+        "discussion":discussion,
+        "soundtrack":soundtrack
     }
     with st.spinner("🔎 Searching TMDb..."):
         st.session_state.tmdb_results = search_tmdb_movies(st.session_state.prefs)
@@ -189,8 +198,8 @@ if rec and st.session_state.tmdb_results:
     st.markdown("## 🌟 AI-Recommended Movie")
     detail = find_details(rec, st.session_state.tmdb_results)
     if detail:
-        title    = detail["title"]
-        year     = detail.get("release_date","")[:4]
+        title = detail["title"]
+        year  = detail.get("release_date","")[:4]
         overview = detail.get("overview","No synopsis available.")
 
         st.markdown(f"### 🎬 {title} ({year})")
@@ -198,6 +207,7 @@ if rec and st.session_state.tmdb_results:
             st.image(f"https://image.tmdb.org/t/p/w500{detail['poster_path']}", width=300)
         st.write(overview)
 
+        # Fetch and show streaming providers
         providers = get_streaming_info(detail["id"], country_code="PT")
         if providers:
             st.markdown("#### 📺 Where to Watch (Portugal)")
@@ -221,7 +231,12 @@ if rec and st.session_state.tmdb_results:
         # ➕ Add to my watchlist (email to yourself)
         if st.button("➕ Add to my watchlist"):
             subject = f"Watchlist: {title} ({year})"
-            body    = f"Hi there,\n\nDon't forget to watch:\n\n{title} ({year})\n\nSynopsis:\n{overview}"
+            body = (
+                f"Hi there,\n\n"
+                f"Don't forget to watch:\n\n"
+                f"{title} ({year})\n\n"
+                f"Synopsis:\n{overview}"
+            )
             send_email(subject, body, EMAIL_USER)
             st.success("✅ Added to your watchlist and email sent!")
 
@@ -229,25 +244,17 @@ if rec and st.session_state.tmdb_results:
         friend_email = st.text_input("📧 Friend's email address")
         if friend_email and st.button("📤 Send to friend"):
             subject = f"I Recommend You Watch: {title} ({year})"
-            body    = (
-                f"Hey,\n\nI thought you might enjoy this movie:\n\n{title} ({year})\n\n{overview}\n\nEnjoy! 🍿"
+            body = (
+                f"Hey,\n\n"
+                f"I thought you might enjoy this movie:\n\n"
+                f"{title} ({year})\n\n"
+                f"{overview}\n\n"
+                f"Enjoy! 🍿"
             )
             try:
                 send_email(subject, body, friend_email)
                 st.success(f"🎉 Recommendation sent to {friend_email}!")
             except Exception as e:
                 st.error(f"❌ Failed to send: {e}")
-
-        # 🎲 Want another movie?
-        def _pick_another():
-            st.session_state.recommendation = pick_movie(
-                st.session_state.tmdb_results,
-                st.session_state.prefs,
-                prev=st.session_state.recommendation
-            )
-
-        st.button("🎲 Want another movie?", on_click=_pick_another)
-
     else:
         st.warning("⚠️ Couldn't find details for the AI pick.")
-
