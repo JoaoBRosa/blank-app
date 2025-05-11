@@ -184,7 +184,7 @@ if find_clicked:
 # --- Display Recommendation & Features ---
 rec = st.session_state.get("recommendation")
 if rec and st.session_state.tmdb_results:
-    st.markdown("## 🌟 AI-Recommended Movie")
+    st.markdown("## 🌟 Our Movie reccomendation")
 
     detail = find_details(rec, st.session_state.tmdb_results)
     if not detail:
