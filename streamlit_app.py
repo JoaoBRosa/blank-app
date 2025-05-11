@@ -119,25 +119,17 @@ def pick_movie(movies, prefs, prev=None):
 
 # --- Helper: Find matched details ---
 def find_details(title, pool):
-    # Strip off any trailing “(YYYY)” from the title
     clean = title
     if clean.endswith(")") and "(" in clean:
         clean = clean[:clean.rfind("(")].strip()
     else:
         clean = clean.strip()
 
-    # Build a list of just the titles
     titles = [m["title"] for m in pool]
-    # Fuzzy-match against that list
     matches = difflib.get_close_matches(clean, titles, n=1, cutoff=0.7)
-
-    # If we got a match, return the full movie dict
     if matches:
         return next((m for m in pool if m["title"] == matches[0]), None)
-
-    # Otherwise give up
     return None
-
 
 # --- UI & State Init ---
 st.title("🍿 AI Movie Recommender")
@@ -207,7 +199,6 @@ if rec and st.session_state.tmdb_results:
             st.image(f"https://image.tmdb.org/t/p/w500{detail['poster_path']}", width=300)
         st.write(overview)
 
-        # Fetch and show streaming providers
         providers = get_streaming_info(detail["id"], country_code="PT")
         if providers:
             st.markdown("#### 📺 Where to Watch (Portugal)")
@@ -256,5 +247,16 @@ if rec and st.session_state.tmdb_results:
                 st.success(f"🎉 Recommendation sent to {friend_email}!")
             except Exception as e:
                 st.error(f"❌ Failed to send: {e}")
+
+        # 🎲 Want another movie? (NEW)
+        if st.button("🎲 Want another movie?"):
+            new_rec = pick_movie(
+                st.session_state.tmdb_results,
+                st.session_state.prefs,
+                prev=st.session_state.recommendation
+            )
+            st.session_state.recommendation = new_rec
+            st.experimental_rerun()
+
     else:
         st.warning("⚠️ Couldn't find details for the AI pick.")
