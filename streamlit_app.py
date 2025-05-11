@@ -23,10 +23,9 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 def send_email(subject: str, body: str, to_email: str):
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = EMAIL_USER
-    msg["To"] = to_email
+    msg["From"]    = EMAIL_USER
+    msg["To"]      = to_email
     msg.set_content(body)
-
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as smtp:
         smtp.login(EMAIL_USER, EMAIL_PASS)
         smtp.send_message(msg)
@@ -34,32 +33,36 @@ def send_email(subject: str, body: str, to_email: str):
 # --- Helper: TMDb Search ---
 def search_tmdb_movies(answers):
     genre_map = {
-        "Action":28,"Comedy":35,"Drama":18,"Sci-Fi":878,"Romance":10749,
-        "Thriller":53,"Horror":27,"Animation":16,"Documentary":99,"Fantasy":14
+        "Action":28, "Comedy":35, "Drama":18, "Sci-Fi":878, "Romance":10749,
+        "Thriller":53, "Horror":27, "Animation":16, "Documentary":99, "Fantasy":14
     }
     language_map = {
-        "English":"en","French":"fr","Spanish":"es","Korean":"ko",
-        "Italian":"it","Portuguese":"pt"
+        "English":"en", "French":"fr", "Spanish":"es", "Korean":"ko",
+        "Italian":"it", "Portuguese":"pt"
     }
     year_map = {
-        "Before 1950":(1900,1949),"1950-1980":(1950,1980),"1980-2000":(1980,2000),
-        "2000-2010":(2000,2010),"2010–2020":(2010,2020),"2020-2024":(2020,2024)
+        "Before 1950": (1900,1949),
+        "1950-1980":  (1950,1980),
+        "1980-2000":  (1980,2000),
+        "2000-2010":  (2000,2010),
+        "2010–2020":  (2010,2020),
+        "2020-2024":  (2020,2024)
     }
 
     genres = [str(genre_map[g]) for g in answers["genre"]]
-    langs  = [language_map[l] for l in answers["language"] if l!="No preference"]
-    min_y, max_y = year_map.get(answers["release_year"], (None,None))
+    langs  = [language_map[l] for l in answers["language"] if l != "No preference"]
+    min_y, max_y = year_map.get(answers["release_year"], (None, None))
 
-    duration = answers["duration"]
-    if duration == "Less than 90 minutes":
-        runtime = (0,89)
-    elif duration == "Around 90–120 minutes":
-        runtime = (0,120)
+    dur = answers["duration"]
+    if dur == "Less than 90 minutes":
+        runtime = (0, 89)
+    elif dur == "Around 90–120 minutes":
+        runtime = (0, 120)
     else:
-        runtime = (90,400)
+        runtime = (90, 400)
 
     results = []
-    for page in range(1,4):
+    for page in range(1, 4):
         url = (
             f"https://api.themoviedb.org/3/discover/movie?"
             f"api_key={TMDB_API_KEY}&sort_by=popularity.desc&page={page}"
@@ -77,7 +80,7 @@ def search_tmdb_movies(answers):
         r = requests.get(url)
         if r.ok:
             for m in r.json().get("results", []):
-                if all(int(gid) in m["genre_ids"] for gid in genres):
+                if all(int(g) in m["genre_ids"] for g in genres):
                     results.append(m)
     return results
 
@@ -90,16 +93,14 @@ def get_streaming_info(movie_id, country_code="PT"):
     data = r.json().get("results", {}).get(country_code, {})
     if not data:
         return None
-
-    providers = {
+    return {
         "subscription": [p["provider_name"] for p in data.get("flatrate", [])],
         "rent":         [p["provider_name"] for p in data.get("rent", [])],
         "buy":          [p["provider_name"] for p in data.get("buy", [])],
         "link":         data.get("link")
     }
-    return providers
 
-# --- Helper: GPT selects one movie ---
+# --- Helper: GPT picks one movie ---
 def pick_movie(movies, prefs, prev=None):
     prompt = "🎯 From the list below, pick ONE movie that best fits the user's preferences.\n\n"
     prompt += "📝 Preferences:\n" + "\n".join(f"- {k}: {v}" for k,v in prefs.items()) + "\n\n📽 Movies List:\n"
@@ -119,25 +120,9 @@ def pick_movie(movies, prefs, prev=None):
 
 # --- Helper: Find matched details ---
 def find_details(title, pool):
-    # Strip off any trailing “(YYYY)” from the title
-    clean = title
-    if clean.endswith(")") and "(" in clean:
-        clean = clean[:clean.rfind("(")].strip()
-    else:
-        clean = clean.strip()
-
-    # Build a list of just the titles
-    titles = [m["title"] for m in pool]
-    # Fuzzy-match against that list
-    matches = difflib.get_close_matches(clean, titles, n=1, cutoff=0.7)
-
-    # If we got a match, return the full movie dict
-    if matches:
-        return next((m for m in pool if m["title"] == matches[0]), None)
-
-    # Otherwise give up
-    return None
-
+    clean = re.sub(r"\s*\(\d{4}\)$","", title).strip()
+    match = difflib.get_close_matches(clean, [m["title"] for m in pool], n=1, cutoff=0.7)
+    return next((m for m in pool if m["title"] == match[0]), None) if match else None
 
 # --- UI & State Init ---
 st.title("🍿 AI Movie Recommender")
@@ -168,18 +153,18 @@ with st.form("preferences_form"):
 
 if find_clicked:
     st.session_state.prefs = {
-        "duration":duration,
-        "language":language,
-        "genre":genre,
-        "release_year":release_year,
-        "mood":mood,
-        "company":company,
-        "with_kids":with_kids,
-        "tone":tone,
-        "popularity":popularity,
+        "duration":       duration,
+        "language":       language,
+        "genre":          genre,
+        "release_year":   release_year,
+        "mood":           mood,
+        "company":        company,
+        "with_kids":      with_kids,
+        "tone":           tone,
+        "popularity":     popularity,
         "real_or_fiction":real_or_fic,
-        "discussion":discussion,
-        "soundtrack":soundtrack
+        "discussion":     discussion,
+        "soundtrack":     soundtrack
     }
     with st.spinner("🔎 Searching TMDb..."):
         st.session_state.tmdb_results = search_tmdb_movies(st.session_state.prefs)
@@ -193,7 +178,6 @@ if find_clicked:
         )
 
 # --- Display Recommendation & Streaming Links ---
-# --- Display Recommendation & Streaming Links ---
 rec = st.session_state.get("recommendation")
 if rec and st.session_state.tmdb_results:
     st.markdown("## 🌟 AI-Recommended Movie")
@@ -206,8 +190,8 @@ if rec and st.session_state.tmdb_results:
         year     = detail.get("release_date","")[:4]
         overview = detail.get("overview","No synopsis available.")
 
-        # layout: poster + overview
-        cols = st.columns([1,2])
+        # poster + overview layout
+        cols = st.columns([1, 2])
         with cols[0]:
             if detail.get("poster_path"):
                 st.image(f"https://image.tmdb.org/t/p/w500{detail['poster_path']}", width=200)
@@ -222,10 +206,9 @@ if rec and st.session_state.tmdb_results:
                 st.session_state.prefs,
                 prev=st.session_state.recommendation
             )
-            # re‐run so new movie appears immediately
             st.experimental_rerun()
 
-        # Now fetch & show streaming info
+        # 📺 Streaming Options
         providers = get_streaming_info(detail["id"], country_code="PT")
         if providers:
             st.markdown("#### 📺 Where to Watch (Portugal)")
@@ -246,34 +229,20 @@ if rec and st.session_state.tmdb_results:
         else:
             st.info("No streaming info found for Portugal.")
 
-
-        # ➕ Add to my watchlist (email to yourself)
+        # ➕ Add to my watchlist
         if st.button("➕ Add to my watchlist"):
             subject = f"Watchlist: {title} ({year})"
-            body = (
-                f"Hi there,\n\n"
-                f"Don't forget to watch:\n\n"
-                f"{title} ({year})\n\n"
-                f"Synopsis:\n{overview}"
-            )
+            body    = f"Don't forget to watch:\n\n{title} ({year})\n\nSynopsis:\n{overview}"
             send_email(subject, body, EMAIL_USER)
-            st.success("✅ Added to your watchlist and email sent!")
+            st.success("✅ Added to your watchlist!")
 
         # 📧 Send to a friend
-        friend_email = st.text_input("📧 Friend's email address")
-        if friend_email and st.button("📤 Send to friend"):
+        friend_email = st.text_input("📧 Friend's email address", key="friend_email")
+        if friend_email and st.button("📤 Send to friend", key="send_to_friend"):
             subject = f"I Recommend You Watch: {title} ({year})"
-            body = (
-                f"Hey,\n\n"
-                f"I thought you might enjoy this movie:\n\n"
-                f"{title} ({year})\n\n"
-                f"{overview}\n\n"
-                f"Enjoy! 🍿"
-            )
+            body    = f"Hey,\n\nI thought you might enjoy this movie:\n\n{title} ({year})\n\n{overview}\n\nEnjoy! 🍿"
             try:
                 send_email(subject, body, friend_email)
                 st.success(f"🎉 Recommendation sent to {friend_email}!")
             except Exception as e:
                 st.error(f"❌ Failed to send: {e}")
-    else:
-        st.warning("⚠️ Couldn't find details for the AI pick.")
