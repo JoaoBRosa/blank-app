@@ -7,7 +7,7 @@ import smtplib
 from email.message import EmailMessage
 
 # --- Load API keys from secrets.toml ---
-TMDB_API_KEY   = st.secrets["api_keys"]["tmdb"]
+TMDB_API_KEY = st.secrets["api_keys"]["tmdb"]
 OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
 
 # --- Load Email credentials from secrets.toml ---
@@ -80,7 +80,7 @@ def search_tmdb_movies(answers):
         r = requests.get(url)
         if r.ok:
             for m in r.json().get("results", []):
-                if all(int(g) in m["genre_ids"] for g in genres):
+                if all(int(gid) in m["genre_ids"] for gid in genres):
                     results.append(m)
     return results
 
@@ -107,7 +107,7 @@ def pick_movie(movies, prefs, prev=None):
     for m in movies[:30]:
         prompt += f"- {m['title']} ({m.get('release_date','')[:4]})\n"
     if prev:
-        prompt += f"\n⚠️ Previously recommended: {prev}. Please choose a different one.\n"
+        prompt += f"\n⚠️ Previously recommended: {prev}. Choose a different one.\n"
     prompt += "\nReturn ONLY the exact movie title."
 
     res = client.chat.completions.create(
@@ -124,7 +124,7 @@ def find_details(title, pool):
     match = difflib.get_close_matches(clean, [m["title"] for m in pool], n=1, cutoff=0.7)
     return next((m for m in pool if m["title"] == match[0]), None) if match else None
 
-# --- UI & State Init ---
+# --- UI & Session State Setup ---
 st.title("🍿 AI Movie Recommender")
 
 if "tmdb_results" not in st.session_state:
@@ -139,6 +139,7 @@ with st.form("preferences_form"):
     language     = st.multiselect("🌐 Preferred languages", ["English","French","Spanish","Korean","Italian","Portuguese","No preference"])
     genre        = st.multiselect("🎞️ Genres you like", ["Action","Comedy","Drama","Sci-Fi","Romance","Thriller","Horror","Animation","Documentary","Fantasy"])
     release_year = st.selectbox("📅 Release year preference", ["Before 1950","1950-1980","1980-2000","2000-2010","2010–2020","2020-2024","No preference"])
+
     st.markdown("---")
     st.header("2️⃣ Mood & Extras")
     mood         = st.multiselect("😊 How are you feeling?", ["Happy","Sad","Romantic","Adventurous","Tense/Anxious","I don't really know"])
@@ -149,6 +150,7 @@ with st.form("preferences_form"):
     real_or_fic  = st.radio("📖 Story type", ["Real events","Fictional Narratives","No preference"])
     discussion   = st.radio("💬 Conversation-worthy?", ["Yes","No","No preference"])
     soundtrack   = st.radio("🎵 Importance of soundtrack", ["Yes","No","No preference"])
+
     find_clicked = st.form_submit_button("🔍 Find Movies")
 
 if find_clicked:
@@ -168,16 +170,18 @@ if find_clicked:
     }
     with st.spinner("🔎 Searching TMDb..."):
         st.session_state.tmdb_results = search_tmdb_movies(st.session_state.prefs)
+
     if not st.session_state.tmdb_results:
         st.error("❌ No movies found.")
     else:
         st.success(f"✅ Found {len(st.session_state.tmdb_results)} movies!")
+        # initial recommendation
         st.session_state.recommendation = pick_movie(
             st.session_state.tmdb_results,
             st.session_state.prefs
         )
 
-# --- Display Recommendation & Streaming Links ---
+# --- Display Recommendation & Features ---
 rec = st.session_state.get("recommendation")
 if rec and st.session_state.tmdb_results:
     st.markdown("## 🌟 AI-Recommended Movie")
@@ -190,23 +194,22 @@ if rec and st.session_state.tmdb_results:
         year     = detail.get("release_date","")[:4]
         overview = detail.get("overview","No synopsis available.")
 
-        # poster + overview layout
-        cols = st.columns([1, 2])
-        with cols[0]:
+        # Poster + synopsis
+        col1, col2 = st.columns([1,2])
+        with col1:
             if detail.get("poster_path"):
                 st.image(f"https://image.tmdb.org/t/p/w500{detail['poster_path']}", width=200)
-        with cols[1]:
+        with col2:
             st.markdown(f"### 🎬 {title} ({year})")
             st.write(overview)
 
-        # 🔁 Try Another (always visible)
+        # 🔁 Try Another
         if st.button("🔁 Try Another", key="try_another"):
             st.session_state.recommendation = pick_movie(
                 st.session_state.tmdb_results,
                 st.session_state.prefs,
                 prev=st.session_state.recommendation
             )
-            st.experimental_rerun()
 
         # 📺 Streaming Options
         providers = get_streaming_info(detail["id"], country_code="PT")
@@ -230,7 +233,7 @@ if rec and st.session_state.tmdb_results:
             st.info("No streaming info found for Portugal.")
 
         # ➕ Add to my watchlist
-        if st.button("➕ Add to my watchlist"):
+        if st.button("➕ Add to my watchlist", key="add_watchlist"):
             subject = f"Watchlist: {title} ({year})"
             body    = f"Don't forget to watch:\n\n{title} ({year})\n\nSynopsis:\n{overview}"
             send_email(subject, body, EMAIL_USER)
