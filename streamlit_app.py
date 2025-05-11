@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import requests
 import difflib
@@ -251,4 +250,4 @@ if rec and st.session_state.tmdb_results:
 
     else:
         st.warning("⚠️ Couldn't find details for the AI pick.")
-```
+
