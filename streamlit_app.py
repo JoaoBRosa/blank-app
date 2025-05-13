@@ -124,8 +124,16 @@ def find_details(title, pool):
     match = difflib.get_close_matches(clean, [m["title"] for m in pool], n=1, cutoff=0.7)
     return next((m for m in pool if m["title"] == match[0]), None) if match else None
 
+# --- Callback for “Try Another” ---
+def pick_new_movie():
+    st.session_state.recommendation = pick_movie(
+        st.session_state.tmdb_results,
+        st.session_state.prefs,
+        prev=st.session_state.recommendation
+    )
+
 # --- UI & Session State Setup ---
-st.title("🍿Movie Reccomender")
+st.title("🍿 Movie Recommender")
 
 if "tmdb_results" not in st.session_state:
     st.session_state.tmdb_results = []
@@ -184,7 +192,7 @@ if find_clicked:
 # --- Display Recommendation & Features ---
 rec = st.session_state.get("recommendation")
 if rec and st.session_state.tmdb_results:
-    st.markdown("## 🌟 Our Movie reccomendation")
+    st.markdown("## 🌟 Our Movie Recommendation")
 
     detail = find_details(rec, st.session_state.tmdb_results)
     if not detail:
@@ -203,13 +211,12 @@ if rec and st.session_state.tmdb_results:
             st.markdown(f"### 🎬 {title} ({year})")
             st.write(overview)
 
-        # 🔁 Try Another
-        if st.button("🔁 Try Another", key="try_another"):
-            st.session_state.recommendation = pick_movie(
-                st.session_state.tmdb_results,
-                st.session_state.prefs,
-                prev=st.session_state.recommendation
-            )
+        # 🔁 Try Another (callback version)
+        st.button(
+            "🔁 Try Another", 
+            key="try_another", 
+            on_click=pick_new_movie
+        )
 
         # 📺 Streaming Options
         providers = get_streaming_info(detail["id"], country_code="PT")
@@ -239,13 +246,28 @@ if rec and st.session_state.tmdb_results:
             send_email(subject, body, EMAIL_USER)
             st.success("✅ Added to your watchlist!")
 
-        # 📧 Send to a friend
-        friend_email = st.text_input("📧Do you want to receive this recommendation by email or share with a friend? Put here your email adress", key="friend_email")
-        if friend_email and st.button("📤 Send to friend", key="send_to_friend"):
+        # ─── Send to a Friend ───
+        with st.form("send_form"):
+            friend_email = st.text_input("📧 Friend’s email address", key="friend_email")
+            send = st.form_submit_button("📤 Send to friend")
+
+        if send and st.session_state.recommendation:
+            # re-fetch detail in case we picked “another”
+            detail = find_details(st.session_state.recommendation, st.session_state.tmdb_results)
+            title  = detail["title"]
+            year   = detail.get("release_date", "")[:4]
+            overview = detail.get("overview", "")
             subject = f"I Recommend You Watch: {title} ({year})"
-            body    = f"Hey,\n\nI thought you might enjoy this movie:\n\n{title} ({year})\n\n{overview}\n\nEnjoy! 🍿"
+            body = (
+                f"Hey,\n\n"
+                f"I thought you might enjoy this movie:\n\n"
+                f"{title} ({year})\n\n"
+                f"{overview}\n\n"
+                "Enjoy! 🍿"
+            )
             try:
                 send_email(subject, body, friend_email)
                 st.success(f"🎉 Recommendation sent to {friend_email}!")
             except Exception as e:
                 st.error(f"❌ Failed to send: {e}")
+            st.stop()
