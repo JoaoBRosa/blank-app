@@ -80,7 +80,8 @@ def fetch_work_details(key: str):
     # Summary
     r = requests.get(f"{base}{key}.json")
     if r.ok:
-        d = r.json().get("description")
+        data = r.json()
+        d = data.get("description")
         if isinstance(d, dict):
             description = d.get("value")
         elif isinstance(d, str):
@@ -89,9 +90,9 @@ def fetch_work_details(key: str):
     # Ratings
     r2 = requests.get(f"{base}{key}/ratings.json")
     if r2.ok:
-        s = r2.json().get("summary", {})
-        rating_avg = s.get("average")
-        rating_count = s.get("count")
+        summary = r2.json().get("summary", {})
+        rating_avg = summary.get("average")
+        rating_count = summary.get("count")
 
     return description, rating_avg, rating_count
 
@@ -106,7 +107,7 @@ def build_tags(prefs):
         "lang": LANGUAGE_TO_CODE[prefs["language"]],
         "year": YEAR_RANGES[prefs["year_range"]],
         "length": LENGTH_RANGES[prefs["length"]],
-        "kids": prefs["kids"]
+        "kids": prefs["kids"],
     }
 
 def fetch_books(tags):
@@ -125,44 +126,48 @@ def fetch_books(tags):
         r = requests.get(OPENLIBRARY_SEARCH_URL, params=params)
         if not r.ok:
             return
+
         for d in r.json().get("docs", []):
             if d.get("key"):
                 docs[d["key"]] = d
 
+    # Main genres
     for s in tags["subjects"]:
         query(s)
 
+    # General search
     query(None)
 
+    # Mood categories
     for s in tags["extra"]:
         query(s)
 
     return list(docs.values())
 
-def passes_range(val, a, b):
-    if val is None:
+def passes_range(v, a, b):
+    if v is None:
         return True
-    if a is not None and val < a:
+    if a is not None and v < a:
         return False
-    if b is not None and val > b:
+    if b is not None and v > b:
         return False
     return True
 
 def filter_books(docs, tags):
     ya, yb = tags["year"]
     pa, pb = tags["length"]
-    filtered = []
 
+    out = []
     for d in docs:
         if not passes_range(d.get("first_publish_year"), ya, yb):
             continue
         if not passes_range(d.get("number_of_pages_median"), pa, pb):
             continue
-        filtered.append(d)
+        out.append(d)
 
-    return filtered
+    return out
 
-# FIX: True random
+# FIX: TRUE RANDOM SELECTION
 def pick_random(docs, prev_key=None):
     if not docs:
         return None
@@ -172,12 +177,12 @@ def pick_random(docs, prev_key=None):
 def format_book(d):
     return {
         "title": d.get("title", "Unknown Title"),
-        "authors": ", ".join(d.get("author_name", [])) or "Unknown Author",
+        "authors": ", ".join(d.get("author_name", []) or []),
         "year": d.get("first_publish_year", "Unknown Year"),
         "pages": d.get("number_of_pages_median"),
         "cover": f"{COVERS_BASE_URL}{d.get('cover_i')}-L.jpg" if d.get("cover_i") else None,
         "key": d.get("key"),
-        "url": "https://openlibrary.org" + d.get("key")
+        "url": "https://openlibrary.org" + d.get("key"),
     }
 
 # =========================
@@ -186,7 +191,7 @@ def format_book(d):
 
 st.title("📚💘 Bookify – Swipe Your Next Read!")
 
-# Initialize state
+# Initialize session state
 if "results" not in st.session_state:
     st.session_state.results = []
 
@@ -196,7 +201,7 @@ if "book" not in st.session_state:
 if "likes" not in st.session_state:
     st.session_state.likes = []
 
-# Sidebar
+# Sidebar - Liked books
 st.sidebar.header("❤️ Your Liked Books")
 if st.session_state.likes:
     for b in st.session_state.likes:
@@ -210,13 +215,16 @@ if st.session_state.likes:
 else:
     st.sidebar.write("No liked books yet.")
 
-# Form
+# =========================
+# Quiz
+# =========================
+
 with st.form("quiz"):
     st.subheader("1️⃣ Genres")
-    genres = st.multiselect("Select genres:", list(GENRE_TO_SUBJECT.keys()), default=["Classics 🏛️"])
+    genres = st.multiselect("Pick genres:", list(GENRE_TO_SUBJECT.keys()), ["Classics 🏛️"])
 
     st.subheader("2️⃣ Mood")
-    mood = st.multiselect("Vibe:", list(MOOD_EXTRA_SUBJECTS.keys()))
+    mood = st.multiselect("Pick mood:", list(MOOD_EXTRA_SUBJECTS.keys()))
 
     st.subheader("3️⃣ Book Specs")
     length = st.radio("Length:", list(LENGTH_RANGES.keys()))
@@ -229,7 +237,10 @@ with st.form("quiz"):
 
     go = st.form_submit_button("✨ Find Books")
 
-# Search
+# =========================
+# Fetch results
+# =========================
+
 if go:
     prefs = {
         "genres": genres,
@@ -237,12 +248,12 @@ if go:
         "length": length,
         "year_range": year,
         "language": lang,
-        "kids": kids
+        "kids": kids,
     }
 
     tags = build_tags(prefs)
 
-    with st.spinner("🔎 Searching..."):
+    with st.spinner("🔎 Searching for books…"):
         docs = fetch_books(tags)
         docs = filter_books(docs, tags)
 
@@ -252,26 +263,30 @@ if go:
     else:
         st.error("No books found. Try adjusting filters!")
 
-# Show result + swipe
+# =========================
+# Show result + Swipe
+# =========================
+
 book = st.session_state.book
 
 if book:
     st.subheader("📖 Your Match")
 
-    col1, col2 = st.columns([1,2])
+    col1, col2 = st.columns([1, 2])
 
     with col1:
         if book["cover"]:
             st.image(book["cover"])
         else:
-            st.write("📕 No cover.")
+            st.write("📕 No cover available.")
 
     with col2:
         st.markdown(f"### {book['title']} 📘")
         st.write(f"**Author:** {book['authors']}")
         st.write(f"**Year:** {book['year']}")
-        st.write(f"[🔗 Open Library Page]({book['url']})")
+        st.write(f"[🔗 View on Open Library]({book['url']})")
 
+    # Summary & Rating
     desc, avg, count = fetch_work_details(book["key"])
 
     st.subheader("📝 Summary")
@@ -281,8 +296,9 @@ if book:
     if avg:
         st.write(f"**{avg:.1f} ⭐** ({count} reviews)")
     else:
-        st.write("No rating data.")
+        st.write("No rating data available.")
 
+    # Swipe buttons
     st.write("---")
     st.markdown("### ❤️ Swipe")
 
@@ -291,11 +307,11 @@ if book:
     if c1.button("❤️ Like"):
         st.session_state.likes.append(book)
         st.session_state.book = format_book(pick_random(st.session_state.results, book["key"]))
-        st.experimental_rerun()
+        st.rerun()
 
     if c2.button("❌ Skip"):
         st.session_state.book = format_book(pick_random(st.session_state.results, book["key"]))
-        st.experimental_rerun()
+        st.rerun()
 
 elif go:
     st.info("Try relaxing filters.")
