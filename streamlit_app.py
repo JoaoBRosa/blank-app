@@ -1,8 +1,9 @@
-
 import streamlit as st
 import requests
 import random
 from typing import Dict, Any, Optional
+import qrcode
+from io import BytesIO
 
 # =========================
 #  Config
@@ -16,19 +17,19 @@ COVERS_BASE_URL = "https://covers.openlibrary.org/b/id/"
 # =========================
 
 GENRE_TO_SUBJECT = {
-    "Classics 🏛️": "classics",
-    "Fantasy 🐉": "fantasy",
-    "Science Fiction 🚀": "science_fiction",
-    "Romance ❤️": "romance",
-    "Mystery / Crime 🕵️": "mystery",
-    "Thriller 😱": "thriller",
-    "Horror 👻": "horror",
-    "Historical 📜": "historical_fiction",
-    "Non-fiction 📚": "nonfiction",
-    "Young Adult ✨": "young_adult",
-    "Children 👧🧒": "children",
-    "Poetry ✒️": "poetry",
-    "Comics / Manga 💥": "comics",
+    "Classics": "classics",
+    "Fantasy": "fantasy",
+    "Science Fiction": "science_fiction",
+    "Romance": "romance",
+    "Mystery / Crime": "mystery",
+    "Thriller": "thriller",
+    "Horror": "horror",
+    "Historical": "historical_fiction",
+    "Non-fiction": "nonfiction",
+    "Young Adult": "young_adult",
+    "Children": "children",
+    "Poetry": "poetry",
+    "Comics / Manga": "comics",
 }
 
 LANGUAGE_TO_CODE = {
@@ -41,31 +42,50 @@ LANGUAGE_TO_CODE = {
 }
 
 YEAR_RANGES = {
-    "Timeless (before 1950)": (None, 1949),
-    "Old but gold (1950–1980)": (1950, 1980),
-    "90s & 00s nostalgia (1980–2000)": (1980, 2000),
-    "Pretty modern (2000–2010)": (2000, 2010),
-    "Recent (2010–2020)": (2010, 2020),
-    "Very recent (after 2020)": (2021, None),
-    "Surprise me! (no preference)": (None, None),
+    "Before 1950": (None, 1949),
+    "1950–1980": (1950, 1980),
+    "1980–2000": (1980, 2000),
+    "2000–2010": (2000, 2010),
+    "2010–2020": (2010, 2020),
+    "After 2020": (2021, None),
+    "No preference": (None, None),
 }
 
 LENGTH_RANGES = {
-    "Snack size (< 200 pages)": (0, 199),
-    "Normal meal (200–400 pages)": (200, 400),
-    "Feast (400+ pages)": (401, None),
-    "Whatever, I don't mind": (None, None),
+    "< 200 pages": (0, 199),
+    "200–400 pages": (200, 400),
+    "> 400 pages": (401, None),
+    "No preference": (None, None),
 }
 
 MOOD_EXTRA_SUBJECTS = {
-    "Cute & cozy ☕️": ["cozy", "friendship"],
-    "Dark & twisty 🌑": ["dark", "psychological"],
-    "I want to laugh 😂": ["humor"],
-    "Soft & romantic 💌": ["love_stories"],
-    "Epic adventure 🗺️": ["adventure"],
-    "Scare me 👀": ["horror"],
-    "Make me think 🤔": ["philosophy"],
+    "Cozy": ["cozy", "friendship"],
+    "Dark": ["dark", "psychological"],
+    "Funny": ["humor"],
+    "Romantic": ["love_stories"],
+    "Adventure": ["adventure"],
+    "Scary": ["horror"],
+    "Thought-provoking": ["philosophy"],
 }
+
+# =========================
+#  QR Code Generator
+# =========================
+
+def generate_qr(text: str):
+    qr = qrcode.QRCode(
+        version=1,
+        box_size=8,
+        border=4
+    )
+    qr.add_data(text)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
 
 # =========================
 #  Helper functions
@@ -198,20 +218,14 @@ def format_book(d):
         "raw": d
     }
 
-
 # =========================
 #  Streamlit UI
 # =========================
 
-st.title("📚 Bookify")
+st.title("📘 Bookify Reimagined")
+st.write("Find the perfect book based on your mood and preferences.")
 
-st.write(
-    """
-    Welcome to **Bookify** — *where every reader finds their perfect match!*  
-    Take our fun quiz and let us pair you with a book that feels just right.  
-    Ready to meet your next favorite story? 
-    """
-)
+st.divider()
 
 if "search_results" not in st.session_state:
     st.session_state.search_results = []
@@ -219,26 +233,26 @@ if "current_book" not in st.session_state:
     st.session_state.current_book = None
 
 with st.form("quiz"):
-    st.subheader("1️⃣ Pick your genres")
+    st.subheader("① Genres")
     genres = st.multiselect(
-        "Choose 1–3 genres:",
+        "Choose up to 3 genres:",
         list(GENRE_TO_SUBJECT.keys()),
-        default=["Classics 🏛️"]
+        default=["Classics"]
     )
 
-    st.subheader("2️⃣ What vibe are you going for?")
-    mood = st.multiselect("Choose the vibe:", list(MOOD_EXTRA_SUBJECTS.keys()))
+    st.subheader("② Mood")
+    mood = st.multiselect("What vibe do you want?", list(MOOD_EXTRA_SUBJECTS.keys()))
 
-    st.subheader("3️⃣ Book size & era")
-    length = st.radio("How long should it be?", list(LENGTH_RANGES.keys()))
-    year_range = st.selectbox("Book era:", list(YEAR_RANGES.keys()))
+    st.subheader("③ Book Specs")
+    length = st.radio("Length:", list(LENGTH_RANGES.keys()))
+    year_range = st.selectbox("Era:", list(YEAR_RANGES.keys()))
 
-    st.subheader("4️⃣ Language & audience")
+    st.subheader("④ Language & Audience")
     language = st.selectbox("Language:", list(LANGUAGE_TO_CODE.keys()) + ["No preference"])
-    audience = st.selectbox("Who is this book for?", ["Just me", "Me & kids", "Book club", "School", "Gift"])
+    audience = st.selectbox("Who is it for?", ["Just me", "Me & kids", "Book club", "School", "Gift"])
     with_kids = "Yes" if audience == "Me & kids" else "No"
 
-    submitted = st.form_submit_button("✨ Find my book!")
+    submitted = st.form_submit_button("🔍 Find my book")
 
 if submitted:
     prefs = {
@@ -252,7 +266,7 @@ if submitted:
 
     tags = build_search_tags(prefs)
 
-    with st.spinner("Searching Open Library…"):
+    with st.spinner("Searching Open Library..."):
         docs = fetch_openlibrary_books(tags)
         docs = filter_books(docs, tags, prefs)
 
@@ -263,12 +277,12 @@ if submitted:
         st.session_state.current_book = format_book(chosen)
     else:
         st.session_state.current_book = None
-        st.error("No books matched. Try adjusting your answers!")
+        st.error("No matching books found. Try adjusting your answers!")
 
 book = st.session_state.current_book
 
 if book:
-    st.markdown("## 💘 Your book match")
+    st.subheader("📖 Your Book Match")
 
     col1, col2 = st.columns([1, 2])
 
@@ -276,16 +290,28 @@ if book:
         if book["cover"]:
             st.image(book["cover"], use_container_width=True)
         else:
-            st.write("No cover available 😢")
+            st.write("No cover available.")
 
     with col2:
         st.markdown(f"### {book['title']}")
-        st.write(f"**Author(s):** {book['authors']}")
-        st.write(f"**First published:** {book['year']}")
+        st.write(f"**Author:** {book['authors']}")
+        st.write(f"**Published:** {book['year']}")
         if book["pages"]:
-            st.write(f"**Length:** {book['pages']} pages")
+            st.write(f"**Pages:** {book['pages']}")
         if book["url"]:
-            st.markdown(f"[📖 View on Open Library]({book['url']})")
+            st.markdown(f"[Open Library Page]({book['url']})")
+
+    # QR Code Section
+    st.subheader("📱 Save or Share")
+    qr_text = f"""
+Title: {book['title']}
+Author: {book['authors']}
+Year: {book['year']}
+Link: {book['url']}
+"""
+
+    qr_img = generate_qr(qr_text)
+    st.image(qr_img, caption="Scan to save this book!", width=200)
 
     if st.button("🔁 Show me another option"):
         prev = book["raw"].get("key")
@@ -293,4 +319,4 @@ if book:
         st.session_state.current_book = format_book(new)
 
 elif submitted:
-    st.info("Try relaxing one or two answers and search again 🙂")
+    st.info("Try relaxing some filters and try again.")
