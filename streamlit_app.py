@@ -182,7 +182,7 @@ def format_book(d):
 #  UI
 # =========================
 
-st.title("📚💘 Bookify – Swipe Your Next Read!")
+st.title("📚 Bookify – Swipe Your Next Read!")
 
 # INTRO
 st.write("""
