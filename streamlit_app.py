@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import random
 from typing import Dict, Any, Optional
-import qrcode
 from io import BytesIO
 
 # =========================
@@ -69,23 +68,38 @@ MOOD_EXTRA_SUBJECTS = {
 }
 
 # =========================
-#  QR Code Generator
+#  Helper: Fetch work details (summary + ratings)
 # =========================
 
-def generate_qr(text: str):
-    qr = qrcode.QRCode(
-        version=1,
-        box_size=8,
-        border=4
-    )
-    qr.add_data(text)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+def fetch_work_details(work_key: str):
+    """Fetch summary and ratings from Open Library."""
+    base_url = "https://openlibrary.org"
 
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return buf
+    # Work details (summary, subjects, etc.)
+    work_data = {}
+    r = requests.get(f"{base_url}{work_key}.json")
+    if r.ok:
+        work_data = r.json()
+
+    # Ratings
+    rating_data = {}
+    r2 = requests.get(f"{base_url}{work_key}/ratings.json")
+    if r2.ok:
+        rating_data = r2.json().get("summary", {})
+
+    # Extract description if available
+    description = None
+    desc_raw = work_data.get("description")
+    if isinstance(desc_raw, dict):
+        description = desc_raw.get("value")
+    elif isinstance(desc_raw, str):
+        description = desc_raw
+
+    return {
+        "description": description,
+        "rating_avg": rating_data.get("average"),
+        "rating_count": rating_data.get("count"),
+    }
 
 # =========================
 #  Helper functions
@@ -218,13 +232,13 @@ def format_book(d):
         "raw": d
     }
 
+
 # =========================
 #  Streamlit UI
 # =========================
 
 st.title("📘 Bookify Reimagined")
 st.write("Find the perfect book based on your mood and preferences.")
-
 st.divider()
 
 if "search_results" not in st.session_state:
@@ -301,17 +315,27 @@ if book:
         if book["url"]:
             st.markdown(f"[Open Library Page]({book['url']})")
 
-    # QR Code Section
-    st.subheader("📱 Save or Share")
-    qr_text = f"""
-Title: {book['title']}
-Author: {book['authors']}
-Year: {book['year']}
-Link: {book['url']}
-"""
+    # =========================
+    #   Summary + Ratings
+    # =========================
 
-    qr_img = generate_qr(qr_text)
-    st.image(qr_img, caption="Scan to save this book!", width=200)
+    work_key = book["raw"].get("key")
+    details = fetch_work_details(work_key)
+
+    st.subheader("📝 Summary")
+    if details["description"]:
+        st.write(details["description"])
+    else:
+        st.write("No summary available for this book.")
+
+    st.subheader("⭐ Ratings")
+    avg = details["rating_avg"]
+    count = details["rating_count"]
+
+    if avg is not None:
+        st.write(f"**Average rating:** {avg:.1f} ⭐ ({count} reviews)")
+    else:
+        st.write("No rating data available.")
 
     if st.button("🔁 Show me another option"):
         prev = book["raw"].get("key")
