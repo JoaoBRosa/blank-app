@@ -230,7 +230,7 @@ def format_book(d):
 #  UI
 # =========================
 
-st.title("📚✨ Bookify – Find Your Perfect Book Match")
+st.title("📚 Bookify – Find Your Perfect Book Match")
 st.write("Answer a few questions and let Bookify recommend your next read!")
 
 st.divider()
