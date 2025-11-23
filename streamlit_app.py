@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import random
-from typing import Dict, Any, Optional
 
 # =========================
 #  Config
@@ -11,7 +10,7 @@ OPENLIBRARY_SEARCH_URL = "https://openlibrary.org/search.json"
 COVERS_BASE_URL = "https://covers.openlibrary.org/b/id/"
 
 # =========================
-#  Mappings (questions → tags)
+#  Mappings
 # =========================
 
 GENRE_TO_SUBJECT = {
@@ -68,275 +67,247 @@ MOOD_EXTRA_SUBJECTS = {
 }
 
 # =========================
-#  Fetch work details (summary + ratings)
+#  Fetch work details
 # =========================
 
-def fetch_work_details(work_key: str):
+def fetch_work_details(key: str):
     base = "https://openlibrary.org"
 
-    # Work details
-    work_data = {}
-    r = requests.get(f"{base}{work_key}.json")
-    if r.ok:
-        work_data = r.json()
-
-    # Ratings
-    rating_data = {}
-    r2 = requests.get(f"{base}{work_key}/ratings.json")
-    if r2.ok:
-        rating_data = r2.json().get("summary", {})
+    desc = None
+    rating_avg = None
+    rating_count = None
 
     # Summary
-    description = None
-    desc = work_data.get("description")
-    if isinstance(desc, dict):
-        description = desc.get("value")
-    elif isinstance(desc, str):
-        description = desc
+    r = requests.get(f"{base}{key}.json")
+    if r.ok:
+        data = r.json()
+        d = data.get("description")
+        if isinstance(d, dict):
+            desc = d.get("value")
+        elif isinstance(d, str):
+            desc = d
 
-    return {
-        "description": description,
-        "rating_avg": rating_data.get("average"),
-        "rating_count": rating_data.get("count"),
-    }
+    # Ratings
+    r2 = requests.get(f"{base}{key}/ratings.json")
+    if r2.ok:
+        s = r2.json().get("summary", {})
+        rating_avg = s.get("average")
+        rating_count = s.get("count")
+
+    return desc, rating_avg, rating_count
 
 # =========================
-#  Helper functions
+#  Core Logic
 # =========================
 
-def build_search_tags(prefs: Dict[str, Any]):
-    subjects = [GENRE_TO_SUBJECT[g] for g in prefs["genres"]]
-
-    if prefs["with_kids"] == "Yes":
-        subjects.append("children")
-
-    extra_subjects = []
-    for m in prefs["mood"]:
-        extra_subjects.extend(MOOD_EXTRA_SUBJECTS.get(m, []))
-
-    lang_code = LANGUAGE_TO_CODE.get(prefs["language"])
-
-    year_range = YEAR_RANGES[prefs["year_range"]]
-    length_range = LENGTH_RANGES[prefs["length"]]
-
+def build_tags(p):
     return {
-        "main_subjects": subjects,
-        "extra_subjects": extra_subjects,
-        "language_code": lang_code,
-        "year_range": year_range,
-        "length_range": length_range,
+        "subjects": [GENRE_TO_SUBJECT[g] for g in p["genres"]],
+        "extra": sum((MOOD_EXTRA_SUBJECTS[m] for m in p["mood"]), []),
+        "lang": LANGUAGE_TO_CODE[p["language"]],
+        "year": YEAR_RANGES[p["year_range"]],
+        "length": LENGTH_RANGES[p["length"]],
+        "kids": p["kids"]
     }
 
+def fetch_books(tags):
+    docs = {}
 
-def fetch_openlibrary_books(tags):
-    all_docs = {}
-
-    def do_query(subject):
+    def query(subject):
         params = {"limit": 50}
-
         if subject:
             params["subject"] = subject
         else:
             params["q"] = "books"
 
-        if tags["language_code"]:
-            params["language"] = tags["language_code"]
+        if tags["lang"]:
+            params["language"] = tags["lang"]
 
         r = requests.get(OPENLIBRARY_SEARCH_URL, params=params)
-        if r.ok:
-            for d in r.json().get("docs", []):
-                key = d.get("key")
-                if key and key not in all_docs:
-                    all_docs[key] = d
+        if not r.ok:
+            return
+        for d in r.json().get("docs", []):
+            key = d.get("key")
+            if key:
+                docs[key] = d
 
-    # Main subjects first
-    for s in tags["main_subjects"]:
-        do_query(s)
+    # Main genres
+    for s in tags["subjects"]:
+        query(s)
 
-    # Fallback wide search
-    do_query(None)
+    # General search
+    query(None)
 
-    # Extra mood subjects
-    for s in tags["extra_subjects"]:
-        do_query(s)
+    # Mood subjects
+    for s in tags["extra"]:
+        query(s)
 
-    return list(all_docs.values())
+    return list(docs.values())
 
-
-def passes_range(value, min_v, max_v):
-    if value is None:
-        return True
-    if min_v is not None and value < min_v:
-        return False
-    if max_v is not None and value > max_v:
-        return False
+def in_range(v, a, b):
+    if v is None: return True
+    if a and v < a: return False
+    if b and v > b: return False
     return True
 
-
-def filter_books(docs, tags, prefs):
+def filter_books(docs, tags):
+    ya, yb = tags["year"]
+    pa, pb = tags["length"]
     out = []
-    year_min, year_max = tags["year_range"]
-    pages_min, pages_max = tags["length_range"]
-
     for d in docs:
-        year = d.get("first_publish_year")
-        pages = d.get("number_of_pages_median")
-
-        if not passes_range(year, year_min, year_max):
-            continue
-        if not passes_range(pages, pages_min, pages_max):
-            continue
-
+        if not in_range(d.get("first_publish_year"), ya, yb): continue
+        if not in_range(d.get("number_of_pages_median"), pa, pb): continue
         out.append(d)
     return out
 
+# =========================
+#  FIX: True random selection
+# =========================
 
-def score(doc):
-    s = doc.get("edition_count", 0) * 2
-    year = doc.get("first_publish_year")
-    if year:
-        if year >= 2015: s += 5
-        elif year >= 2000: s += 3
-    return s
+def pick_random(docs, prev_key=None):
+    """Pick ANY random book except the previous one."""
+    if not docs:
+        return None
 
+    pool = [d for d in docs if d.get("key") != prev_key]
+    if not pool:
+        pool = docs
 
-def pick_book(docs, prev=None):
-    pool = [d for d in docs if d.get("key") != prev] or docs
-    pool = sorted(pool, key=score, reverse=True)
-    top = pool[:10]
-    return random.choice(top)
+    return random.choice(pool)
 
-
-def format_book(d):
-    title = d.get("title", "Unknown Title")
-    authors = ", ".join(d.get("author_name", [])) or "Unknown Author"
-    year = d.get("first_publish_year", "Unknown Year")
-    pages = d.get("number_of_pages_median")
-    cover = d.get("cover_i")
-    cover_url = f"{COVERS_BASE_URL}{cover}-L.jpg" if cover else None
-    url = f"https://openlibrary.org{d.get('key')}" if d.get("key") else None
-
+def fmt(d):
     return {
-        "title": title,
-        "authors": authors,
-        "year": year,
-        "pages": pages,
-        "cover": cover_url,
-        "url": url,
-        "raw": d
+        "title": d.get("title"),
+        "authors": ", ".join(d.get("author_name", []) or []),
+        "year": d.get("first_publish_year"),
+        "pages": d.get("number_of_pages_median"),
+        "cover": f"{COVERS_BASE_URL}{d.get('cover_i')}-L.jpg" if d.get("cover_i") else None,
+        "key": d.get("key"),
+        "url": "https://openlibrary.org" + d.get("key")
     }
 
 # =========================
 #  UI
 # =========================
 
-st.title("📚✨ Bookify – Find Your Perfect Book Match")
-st.write("Answer a few questions and let Bookify recommend your next read!")
+st.title("📚💘 Bookify – Swipe Your Next Read!")
 
-st.divider()
+# Initialize session state
+if "results" not in st.session_state:
+    st.session_state.results = []
 
-if "search_results" not in st.session_state:
-    st.session_state.search_results = []
-if "current_book" not in st.session_state:
-    st.session_state.current_book = None
+if "book" not in st.session_state:
+    st.session_state.book = None
 
-# ---------------------
-# QUIZ
-# ---------------------
+if "likes" not in st.session_state:
+    st.session_state.likes = []
+
+# Sidebar: Liked books
+st.sidebar.header("❤️ Your Liked Books")
+if st.session_state.likes:
+    for b in st.session_state.likes:
+        st.sidebar.markdown(f"**{b['title']}**  
+        {b['authors']}  
+        [Open Library]({b['url']})")
+        st.sidebar.write("---")
+else:
+    st.sidebar.write("No liked books yet.")
+
+# =========================
+#  Quiz
+# =========================
+
 with st.form("quiz"):
-    st.subheader("1️⃣ Choose your genres")
-    genres = st.multiselect(
-        "Pick 1–3 genres:",
-        list(GENRE_TO_SUBJECT.keys()),
-        default=["Classics 🏛️"]
-    )
+    st.subheader("1️⃣ Genres")
+    genres = st.multiselect("Pick genres:", list(GENRE_TO_SUBJECT.keys()), ["Classics 🏛️"])
 
-    st.subheader("2️⃣ What's the vibe?")
-    mood = st.multiselect("Choose your mood:", list(MOOD_EXTRA_SUBJECTS.keys()))
+    st.subheader("2️⃣ Mood")
+    mood = st.multiselect("Pick mood:", list(MOOD_EXTRA_SUBJECTS.keys()))
 
     st.subheader("3️⃣ Book details")
-    length = st.radio("Length preference:", list(LENGTH_RANGES.keys()))
-    year_range = st.selectbox("Preferred era:", list(YEAR_RANGES.keys()))
+    length = st.radio("Length:", list(LENGTH_RANGES.keys()))
+    year = st.selectbox("Era:", list(YEAR_RANGES.keys()))
 
-    st.subheader("4️⃣ Language & audience")
-    language = st.selectbox("Language:", list(LANGUAGE_TO_CODE.keys()))
-    audience = st.selectbox("Who's reading?", ["Just me", "Me & kids", "Book club", "School", "Gift"])
-    with_kids = "Yes" if audience == "Me & kids" else "No"
+    st.subheader("4️⃣ Language & Audience")
+    lang = st.selectbox("Language:", list(LANGUAGE_TO_CODE.keys()))
+    audience = st.selectbox("Who's reading?", ["Just me", "Me & kids"])
+    kids = "Yes" if audience == "Me & kids" else "No"
 
-    submitted = st.form_submit_button("✨ Find my book!")
+    go = st.form_submit_button("✨ Find Books")
 
-# ---------------------
-# PROCESSING
-# ---------------------
-if submitted:
+# =========================
+#  Search
+# =========================
+
+if go:
     prefs = {
         "genres": genres,
         "mood": mood,
         "length": length,
-        "year_range": year_range,
-        "language": language,
-        "with_kids": with_kids,
+        "year_range": year,
+        "language": lang,
+        "kids": kids
     }
 
-    tags = build_search_tags(prefs)
+    tags = build_tags(prefs)
 
-    with st.spinner("🔎 Searching the library..."):
-        docs = fetch_openlibrary_books(tags)
-        docs = filter_books(docs, tags, prefs)
-
-    st.session_state.search_results = docs
+    with st.spinner("🔎 Searching..."):
+        docs = fetch_books(tags)
+        docs = filter_books(docs, tags)
 
     if docs:
-        st.session_state.current_book = format_book(pick_book(docs))
+        st.session_state.results = docs
+        st.session_state.book = fmt(pick_random(docs))
     else:
-        st.session_state.current_book = None
-        st.error("No books found. Try changing your preferences!")
+        st.error("No books match your criteria 😢")
 
-# ---------------------
-# RESULT
-# ---------------------
-book = st.session_state.current_book
+# =========================
+#  Result + Swipe Interface
+# =========================
+
+book = st.session_state.book
 
 if book:
-    st.subheader("💘 Your Book Match")
+    st.subheader("📖 Your Match")
 
     col1, col2 = st.columns([1, 2])
 
     with col1:
         if book["cover"]:
-            st.image(book["cover"], use_container_width=True)
+            st.image(book["cover"])
         else:
             st.write("📕 No cover available.")
 
     with col2:
-        st.markdown(f"### {book['title']} 📖")
-        st.write(f"**Author(s):** {book['authors']}")
-        st.write(f"**Published:** {book['year']}")
-        if book["pages"]:
-            st.write(f"**Length:** {book['pages']} pages")
-        if book["url"]:
-            st.markdown(f"[🔗 View on Open Library]({book['url']})")
+        st.markdown(f"### {book['title']} 📘")
+        st.write(f"**Author:** {book['authors']}")
+        st.write(f"**Year:** {book['year']}")
+        st.write(f"[🔗 Open Library]({book['url']})")
 
-    # Work details: summary + ratings
-    details = fetch_work_details(book["raw"].get("key"))
+    desc, avg, count = fetch_work_details(book["key"])
 
     st.subheader("📝 Summary")
-    if details["description"]:
-        st.write(details["description"])
-    else:
-        st.write("No summary available.")
+    st.write(desc or "No summary available.")
 
     st.subheader("⭐ Ratings")
-    if details["rating_avg"] is not None:
-        st.write(f"**Average Rating:** {details['rating_avg']:.1f} ⭐")
-        st.write(f"**Total Reviews:** {details['rating_count']}")
+    if avg:
+        st.write(f"**Rating:** {avg:.1f} ⭐ ({count} reviews)")
     else:
-        st.write("No ratings available.")
+        st.write("No rating data available.")
 
-    if st.button("🔁 Show another suggestion"):
-        prev = book["raw"].get("key")
-        new = pick_book(st.session_state.search_results, prev)
-        st.session_state.current_book = format_book(new)
+    st.write("---")
+    st.markdown("### ❤️ Swipe")
 
-elif submitted:
-    st.info("Try relaxing some filters to get more results 🙂")
+    colA, colB = st.columns(2)
+
+    if colA.button("❤️ Like"):
+        st.session_state.likes.append(book)
+        st.session_state.book = fmt(pick_random(st.session_state.results, book["key"]))
+        st.experimental_rerun()
+
+    if colB.button("❌ Skip"):
+        st.session_state.book = fmt(pick_random(st.session_state.results, book["key"]))
+        st.experimental_rerun()
+
+elif go:
+    st.info("Try adjusting your filters to see results.")
