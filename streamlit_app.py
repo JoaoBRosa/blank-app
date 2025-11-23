@@ -230,7 +230,7 @@ def format_book(d):
 #  UI
 # =========================
 
-st.title("📚 Bookify – Find Your Perfect Book Match")
+st.title("📚✨ Bookify – Find Your Perfect Book Match")
 st.write("Answer a few questions and let Bookify recommend your next read!")
 
 st.divider()
@@ -244,21 +244,21 @@ if "current_book" not in st.session_state:
 # QUIZ
 # ---------------------
 with st.form("quiz"):
-    st.subheader("1. Choose your genres")
+    st.subheader("1️⃣ Choose your genres")
     genres = st.multiselect(
         "Pick 1–3 genres:",
         list(GENRE_TO_SUBJECT.keys()),
         default=["Classics 🏛️"]
     )
 
-    st.subheader("2. What's the vibe?")
+    st.subheader("2️⃣ What's the vibe?")
     mood = st.multiselect("Choose your mood:", list(MOOD_EXTRA_SUBJECTS.keys()))
 
-    st.subheader("3. Book details")
+    st.subheader("3️⃣ Book details")
     length = st.radio("Length preference:", list(LENGTH_RANGES.keys()))
     year_range = st.selectbox("Preferred era:", list(YEAR_RANGES.keys()))
 
-    st.subheader("4. Language & audience")
+    st.subheader("4️⃣ Language & audience")
     language = st.selectbox("Language:", list(LANGUAGE_TO_CODE.keys()))
     audience = st.selectbox("Who's reading?", ["Just me", "Me & kids", "Book club", "School", "Gift"])
     with_kids = "Yes" if audience == "Me & kids" else "No"
