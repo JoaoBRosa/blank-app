@@ -1,9 +1,4 @@
- 
-Conversas
-67% de 15 GB usados
-Termos de Utilização · Privacidade · Políticas de programa
-Última atividade da conta: há 0 minutos
-Esta conta está aberta noutro local · Detalhes
+
 import streamlit as st
 import requests
 import random
